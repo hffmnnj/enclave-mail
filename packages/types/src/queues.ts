@@ -21,3 +21,10 @@ export interface InboundMailJob {
     version?: string;
   };
 }
+
+export interface OutboundMailJob {
+  to: string[];
+  from: string;
+  encryptedBodyRef: string;
+  dkimSign: boolean;
+}

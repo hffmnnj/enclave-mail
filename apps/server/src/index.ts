@@ -1,6 +1,7 @@
 import { TYPES_PACKAGE_VERSION } from '@enclave/types';
 import { Hono } from 'hono';
 
+import { startOutboundWorker } from './queue/outbound-worker.js';
 import { accountRouter } from './routes/account.js';
 import { authRouter } from './routes/auth.js';
 import { startSMTPServer } from './smtp/server.js';
@@ -26,17 +27,21 @@ app.route('/', accountRouter);
 const PORT = Number(process.env.API_PORT) || 3001;
 
 const smtpServer = startSMTPServer({ cwd: process.cwd() });
+const outboundWorker = startOutboundWorker();
 
 process.on('exit', () => {
   smtpServer.kill();
+  void outboundWorker.close();
 });
 
 process.on('SIGINT', () => {
   smtpServer.kill();
+  void outboundWorker.close();
 });
 
 process.on('SIGTERM', () => {
   smtpServer.kill();
+  void outboundWorker.close();
 });
 
 console.log(`Enclave Mail Server running on http://localhost:${PORT}`);

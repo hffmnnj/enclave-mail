@@ -15,7 +15,7 @@ export function createOutboundMailQueue(): Queue<OutboundMailJob> {
     connection: createRedisConnection(),
     defaultJobOptions: {
       attempts: 5,
-      backoff: { type: 'exponential', delay: 30_000 },
+      backoff: { type: 'outbound-mail-backoff' },
       removeOnComplete: { count: 100 },
       removeOnFail: false,
     },

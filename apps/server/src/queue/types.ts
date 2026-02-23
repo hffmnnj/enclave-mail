@@ -1,24 +1,9 @@
-import type { InboundMailJob as SharedInboundMailJob } from '@enclave/types';
+import type {
+  InboundMailJob as SharedInboundMailJob,
+  OutboundMailJob as SharedOutboundMailJob,
+} from '@enclave/types';
 
-/**
- * Job payload for outbound mail delivery via SMTP relay.
- * Enqueued when a user sends a message; processed by the
- * outbound mail worker which handles DKIM signing and relay.
- */
-export interface OutboundMailJob {
-  /** UUID of the message record in the database */
-  messageId: string;
-  /** Sender email address */
-  from: string;
-  /** Recipient email addresses */
-  to: string[];
-  /** Reference to encrypted body (message_bodies.id) */
-  encryptedBodyRef: string;
-  /** Whether to apply DKIM signature to this message */
-  dkimSign: boolean;
-  /** Current attempt number (managed by BullMQ retry) */
-  attemptCount?: number;
-}
+export type OutboundMailJob = SharedOutboundMailJob;
 
 /**
  * Job payload for inbound mail processing.
