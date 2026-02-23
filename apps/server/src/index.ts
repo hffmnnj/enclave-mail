@@ -1,6 +1,7 @@
 import { TYPES_PACKAGE_VERSION } from '@enclave/types';
 import { Hono } from 'hono';
 
+import { startIMAPServer } from './imap/server.js';
 import { startInboundWorker } from './queue/inbound-worker.js';
 import { startOutboundWorker } from './queue/outbound-worker.js';
 import { accountRouter } from './routes/account.js';
@@ -28,23 +29,27 @@ app.route('/', accountRouter);
 const PORT = Number(process.env.API_PORT) || 3001;
 
 const smtpServer = startSMTPServer({ cwd: process.cwd() });
+const imapServer = startIMAPServer();
 const inboundWorker = startInboundWorker();
 const outboundWorker = startOutboundWorker();
 
 process.on('exit', () => {
   smtpServer.kill();
+  imapServer.stop();
   void inboundWorker.close();
   void outboundWorker.close();
 });
 
 process.on('SIGINT', () => {
   smtpServer.kill();
+  imapServer.stop();
   void inboundWorker.close();
   void outboundWorker.close();
 });
 
 process.on('SIGTERM', () => {
   smtpServer.kill();
+  imapServer.stop();
   void inboundWorker.close();
   void outboundWorker.close();
 });
