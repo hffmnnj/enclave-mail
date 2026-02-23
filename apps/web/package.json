@@ -19,6 +19,7 @@
     "@enclave/ui": "workspace:*"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.6",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0"
   }

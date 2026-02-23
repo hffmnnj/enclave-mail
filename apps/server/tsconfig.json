@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "types": ["bun-types"],
     "baseUrl": ".",
     "paths": {
       "@enclave/db": ["../../packages/db/src/index.ts"],
