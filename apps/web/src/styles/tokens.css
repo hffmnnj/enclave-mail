@@ -1,0 +1,45 @@
+/*
+ * Enclave Mail — Design System Tokens
+ *
+ * "Quiet Brutalism meets Security Interface"
+ *
+ * Color values defined in HSL for Tailwind alpha-value compatibility.
+ * Dark mode is the default. Light mode activates via .light class on <html>.
+ */
+
+/* Dark mode tokens (default) */
+:root,
+.dark {
+  --color-background: 228 16% 8%; /* #0F1117 */
+  --color-background-alt: 228 18% 9%; /* #12141C */
+  --color-surface: 228 24% 14%; /* #1A1D2B */
+  --color-surface-raised: 229 23% 16%; /* #1E2132 */
+  --color-primary: 193 40% 48%; /* #4A9BAE */
+  --color-primary-muted: 208 30% 50%; /* #5B8FA8 */
+  --color-secondary: 43 57% 54%; /* #C9A84C */
+  --color-secondary-muted: 40 52% 55%; /* #D4A843 */
+  --color-text-primary: 228 18% 90%; /* #E2E4EA */
+  --color-text-secondary: 229 15% 60%; /* #8B8FA3 */
+  --color-success: 155 44% 48%; /* #4CAF82 */
+  --color-danger: 0 55% 58%; /* #CF5C5C */
+  --color-border: 228 22% 20%; /* #2A2E3E */
+  --color-overlay: 0 0% 0% / 0.6; /* rgba(0,0,0,0.6) */
+}
+
+/* Light mode tokens */
+.light {
+  --color-background: 210 20% 96%; /* #F4F5F7 */
+  --color-background-alt: 0 0% 100%; /* #FFFFFF */
+  --color-surface: 0 0% 100%; /* #FFFFFF */
+  --color-surface-raised: 210 20% 94%; /* #F0F2F5 */
+  --color-primary: 193 56% 39%; /* #2D7D99 */
+  --color-primary-muted: 193 50% 45%; /* #3A8FAE */
+  --color-secondary: 38 60% 40%; /* #A07C2A */
+  --color-secondary-muted: 36 54% 44%; /* #B08833 */
+  --color-text-primary: 228 24% 14%; /* #1A1D2B */
+  --color-text-secondary: 229 15% 40%; /* #5A5E72 */
+  --color-success: 155 50% 36%; /* #2E8A5C */
+  --color-danger: 0 58% 44%; /* #B03030 */
+  --color-border: 220 15% 82%; /* #D0D4E0 */
+  --color-overlay: 0 0% 0% / 0.3; /* rgba(0,0,0,0.3) */
+}
