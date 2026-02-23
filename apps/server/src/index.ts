@@ -1,6 +1,7 @@
 import { TYPES_PACKAGE_VERSION } from '@enclave/types';
 import { Hono } from 'hono';
 
+import { apiApp } from './api/app.js';
 import { startIMAPServer } from './imap/server.js';
 import { startInboundWorker } from './queue/inbound-worker.js';
 import { startOutboundWorker } from './queue/outbound-worker.js';
@@ -25,6 +26,7 @@ app.get('/health', (c) => {
 
 app.route('/', authRouter);
 app.route('/', accountRouter);
+app.route('/api', apiApp);
 
 const PORT = Number(process.env.API_PORT) || 3001;
 
