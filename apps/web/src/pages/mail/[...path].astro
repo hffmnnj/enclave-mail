@@ -1,0 +1,24 @@
+---
+import AppLayout from '../../layouts/AppLayout.astro';
+
+const { path } = Astro.params;
+const mailbox = path ?? 'inbox';
+
+const mailboxTitles: Record<string, string> = {
+  inbox: 'Inbox',
+  sent: 'Sent',
+  drafts: 'Drafts',
+  trash: 'Trash',
+  archive: 'Archive',
+  compose: 'Compose',
+};
+
+const title = mailboxTitles[mailbox] ?? mailbox;
+---
+
+<AppLayout title={title}>
+  <div class="p-6 text-text-secondary text-ui-base">
+    <p class="font-mono text-ui-sm text-text-secondary/60">/{mailbox}</p>
+    <p class="mt-2">Mail view placeholder &mdash; coming soon.</p>
+  </div>
+</AppLayout>
