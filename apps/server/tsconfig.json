@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@enclave/db": ["../../packages/db/src/index.ts"],
+      "@enclave/db/*": ["../../packages/db/src/*"],
+      "@enclave/crypto": ["../../packages/crypto/src/index.ts"],
+      "@enclave/crypto/*": ["../../packages/crypto/src/*"],
+      "@enclave/types": ["../../packages/types/src/index.ts"],
+      "@enclave/types/*": ["../../packages/types/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

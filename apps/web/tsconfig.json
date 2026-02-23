@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "jsx": "react-jsx",
+    "paths": {
+      "@enclave/types": ["../../packages/types/src/index.ts"],
+      "@enclave/types/*": ["../../packages/types/src/*"],
+      "@enclave/ui": ["../../packages/ui/src/index.ts"],
+      "@enclave/ui/*": ["../../packages/ui/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", ".astro"]
+}
