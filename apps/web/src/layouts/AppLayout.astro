@@ -2,6 +2,7 @@
 import '../styles/globals.css';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
+import { SecurityStatusBar } from '../components/SecurityStatusBar';
 
 interface Props {
   title?: string;
@@ -30,6 +31,7 @@ const currentPath = Astro.url.pathname;
         <main class="flex-1 overflow-auto">
           <slot />
         </main>
+        <SecurityStatusBar client:load />
       </div>
     </div>
   </body>
