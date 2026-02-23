@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "hono": "^4.0.0",
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.0.0",
     "@enclave/types": "workspace:*",
     "@enclave/db": "workspace:*",
     "@enclave/crypto": "workspace:*"
