@@ -1,5 +1,8 @@
-import { Hono } from 'hono';
 import { TYPES_PACKAGE_VERSION } from '@enclave/types';
+import { Hono } from 'hono';
+
+import { accountRouter } from './routes/account.js';
+import { authRouter } from './routes/auth.js';
 
 const app = new Hono();
 
@@ -15,6 +18,9 @@ app.get('/', (c) => {
 app.get('/health', (c) => {
   return c.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
+
+app.route('/', authRouter);
+app.route('/', accountRouter);
 
 const PORT = Number(process.env.API_PORT) || 3001;
 
