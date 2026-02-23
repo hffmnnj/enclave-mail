@@ -1,0 +1,17 @@
+{
+  "name": "apps/server",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.0.0",
+    "@enclave/types": "workspace:*",
+    "@enclave/db": "workspace:*",
+    "@enclave/crypto": "workspace:*"
+  }
+}
