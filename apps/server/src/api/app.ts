@@ -2,6 +2,12 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { ZodError } from 'zod';
 
+import { authMiddleware } from '../middleware/auth.js';
+import { composeRouter } from './routes/compose.js';
+import { keysRouter } from './routes/keys.js';
+import { mailboxRouter } from './routes/mailbox.js';
+import { messageRouter } from './routes/messages.js';
+import { settingsRouter } from './routes/settings.js';
 import type { ApiError } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -72,6 +78,20 @@ apiApp.onError((err, c) => {
 
   return c.json(body, 500);
 });
+
+// --- Mailbox, message & compose routes ---
+// Auth + key export middleware applied within routers.
+apiApp.route('/', mailboxRouter);
+apiApp.route('/', messageRouter);
+apiApp.route('/', composeRouter);
+
+// --- Settings routes ---
+// Auth required for GET/PUT /settings; server info is public.
+apiApp.use('/settings', authMiddleware);
+apiApp.route('/', settingsRouter);
+
+// --- Key management routes ---
+apiApp.route('/', keysRouter);
 
 // --- 404 handler ---
 apiApp.notFound((c) => {
