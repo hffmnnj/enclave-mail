@@ -14,10 +14,15 @@
   },
   "devDependencies": {
     "@types/node": "latest",
-    "@types/pg": "latest"
+    "@types/pg": "latest",
+    "drizzle-kit": "latest"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run src/migrate.ts",
+    "db:push": "drizzle-kit push",
+    "db:seed": "bun run src/seed.ts"
   }
 }
