@@ -22,3 +22,6 @@ export {
   serializePrivateKey,
   serializePublicKey,
 } from './x25519.js';
+
+export * from './key-derivation.js';
+export * from './encrypted-key-store.js';
