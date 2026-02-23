@@ -1,7 +1,6 @@
 ---
 import '../styles/globals.css';
-import { Sidebar } from '../components/Sidebar';
-import { Header } from '../components/Header';
+import { MobileShell } from '../components/MobileShell';
 import { SecurityStatusBar } from '../components/SecurityStatusBar';
 
 interface Props {
@@ -25,18 +24,15 @@ const currentPath = Astro.url.pathname;
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>{title} &mdash; Enclave Mail</title>
   </head>
-  <body class="bg-background text-text-primary min-h-screen">
-    <div class="flex h-screen overflow-hidden">
-      <Sidebar client:load currentPath={currentPath} />
+  <body class="no-horizontal-scroll bg-background text-text-primary min-h-screen">
+    <MobileShell client:load currentPath={currentPath}>
+      <slot />
+    </MobileShell>
+    <SecurityStatusBar client:load />
 
-      <div class="flex flex-1 flex-col overflow-hidden">
-        <Header client:load />
-
-        <main class="flex-1 overflow-auto">
-          <slot />
-        </main>
-        <SecurityStatusBar client:load />
-      </div>
-    </div>
+    <script>
+      import { registerServiceWorker } from '../lib/sw-register';
+      registerServiceWorker();
+    </script>
   </body>
 </html>
