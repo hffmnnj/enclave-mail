@@ -7,7 +7,8 @@
       "@enclave/types": ["../../packages/types/src/index.ts"],
       "@enclave/types/*": ["../../packages/types/src/*"],
       "@enclave/ui": ["../../packages/ui/src/index.ts"],
-      "@enclave/ui/*": ["../../packages/ui/src/*"]
+      "@enclave/ui/*": ["../../packages/ui/src/*"],
+      "@enclave/server/*": ["../../apps/server/src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
