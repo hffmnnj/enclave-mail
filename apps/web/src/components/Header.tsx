@@ -73,15 +73,15 @@ const Header = ({ onMenuOpen, mailboxId }: HeaderProps) => {
     <header className="shrink-0 border-b border-border bg-background">
       {/* Top bar */}
       <div className="flex h-10 items-center gap-2 px-3">
-        {/* Mobile menu button */}
+        {/* Mobile menu button — 44px touch target */}
         <Button
           variant="ghost"
           size="icon"
-          className="md:hidden"
+          className="h-11 w-11 md:hidden"
           onClick={onMenuOpen}
           aria-label="Open navigation menu"
         >
-          <HugeiconsIcon icon={Menu01Icon as IconSvgElement} size={16} strokeWidth={1.5} />
+          <HugeiconsIcon icon={Menu01Icon as IconSvgElement} size={18} strokeWidth={1.5} />
         </Button>
 
         {/* Search toggle */}
@@ -115,11 +115,11 @@ const Header = ({ onMenuOpen, mailboxId }: HeaderProps) => {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Compose button */}
-        <Button variant="default" size="sm" asChild>
-          <a href="/mail/compose" className="gap-1.5">
+        {/* Compose button — icon-only on mobile */}
+        <Button variant="default" size="sm" className="max-md:h-10 max-md:w-10 max-md:p-0" asChild>
+          <a href="/mail/compose" className="gap-1.5 max-md:gap-0 max-md:justify-center">
             <HugeiconsIcon icon={Add01Icon as IconSvgElement} size={14} strokeWidth={2} />
-            <span>Compose</span>
+            <span className="max-md:hidden">Compose</span>
           </a>
         </Button>
 

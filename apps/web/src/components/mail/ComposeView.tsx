@@ -195,27 +195,28 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
     !sendMutation.isPending;
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header bar */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2">
-        <h1 className="min-w-0 flex-1 text-ui-base font-semibold text-text-primary">
-          {replyTo ? 'Reply' : 'New Message'}
-        </h1>
-
+    <div className="flex h-full flex-col max-md:mobile-fullscreen max-md:bg-background">
+      {/* Header bar — taller on mobile with close button */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2 max-md:py-2.5">
+        {/* Close / Discard button — 44px touch target on mobile */}
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7"
+          className="h-7 w-7 max-md:h-11 max-md:w-11"
           aria-label="Discard"
           onClick={handleDiscard}
         >
           <HugeiconsIcon icon={Cancel01Icon as IconSvgElement} size={14} strokeWidth={1.5} />
         </Button>
 
+        <h1 className="min-w-0 flex-1 text-ui-base font-semibold text-text-primary">
+          {replyTo ? 'Reply' : 'New Message'}
+        </h1>
+
         <Button
           variant="default"
           size="sm"
-          className="gap-1.5"
+          className="gap-1.5 max-md:h-10 max-md:px-4"
           disabled={!canSend}
           onClick={handleSend}
           aria-label="Send message"
@@ -229,9 +230,9 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
         </Button>
       </div>
 
-      {/* Scrollable compose area */}
+      {/* Scrollable compose area — full width on mobile */}
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-3xl px-4 py-3">
+        <div className="mx-auto max-w-3xl px-4 py-3 max-md:px-3">
           {/* Recipients */}
           <div className="space-y-1.5">
             <RecipientInput
@@ -245,7 +246,7 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
               <button
                 type="button"
                 onClick={() => setShowCcBcc(true)}
-                className="ml-8 text-ui-xs text-primary hover:text-primary/80 transition-colors"
+                className="ml-8 text-ui-xs text-primary hover:text-primary/80 transition-colors max-md:ml-0"
               >
                 CC / BCC
               </button>
@@ -266,15 +267,15 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="Subject"
-              className="h-8 border-0 border-b border-border rounded-none bg-transparent px-0 text-ui-base font-medium text-text-primary placeholder:text-text-secondary/40 focus-visible:ring-0 focus-visible:border-primary"
+              className="h-8 border-0 border-b border-border rounded-none bg-transparent px-0 text-ui-base font-medium text-text-primary placeholder:text-text-secondary/40 focus-visible:ring-0 focus-visible:border-primary max-md:h-10 max-md:text-ui-md"
               aria-label="Subject"
             />
           </div>
 
           <Separator className="my-3" />
 
-          {/* Rich text editor */}
-          <div className="min-h-[300px]">
+          {/* Rich text editor — taller on mobile for comfortable typing */}
+          <div className="min-h-[300px] max-md:min-h-[200px]">
             <TipTapEditor
               content={htmlBody}
               onChange={setHtmlBody}
@@ -285,8 +286,8 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
         </div>
       </div>
 
-      {/* Footer bar */}
-      <div className="flex shrink-0 items-center gap-3 border-t border-border bg-surface px-3 py-1.5">
+      {/* Footer bar — safe area padding on mobile for notched devices */}
+      <div className="flex shrink-0 items-center gap-3 border-t border-border bg-surface px-3 py-1.5 max-md:pb-[max(0.375rem,env(safe-area-inset-bottom))]">
         <EncryptionStatus hasKey={hasSessionKey} />
 
         <div className="flex-1" />
@@ -296,7 +297,7 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 gap-1 text-ui-xs text-danger hover:text-danger"
+          className="h-7 gap-1 text-ui-xs text-danger hover:text-danger max-md:hidden"
           onClick={handleDiscard}
         >
           <HugeiconsIcon icon={Delete01Icon as IconSvgElement} size={12} strokeWidth={1.5} />
@@ -306,7 +307,7 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
 
       {/* Send error toast */}
       {sendMutation.isError && (
-        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 rounded-sm border border-danger bg-danger/10 px-4 py-2 text-ui-sm text-danger shadow-modal">
+        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 rounded-sm border border-danger bg-danger/10 px-4 py-2 text-ui-sm text-danger shadow-modal max-md:bottom-16">
           {sendMutation.error instanceof Error
             ? sendMutation.error.message
             : 'Failed to send message'}

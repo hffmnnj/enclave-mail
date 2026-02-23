@@ -266,29 +266,33 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header bar */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2">
-        {/* Back button */}
-        <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+      {/* Header bar — taller on mobile for touch targets */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2 max-md:py-2.5">
+        {/* Back button — 44px touch target on mobile */}
+        <Button variant="ghost" size="icon" className="h-7 w-7 max-md:h-11 max-md:w-11" asChild>
           <a href="/mail/inbox" aria-label="Back to inbox">
-            <HugeiconsIcon icon={ArrowLeft01Icon as IconSvgElement} size={16} strokeWidth={1.5} />
+            <HugeiconsIcon
+              icon={ArrowLeft01Icon as IconSvgElement}
+              size={16}
+              strokeWidth={1.5}
+              className="max-md:scale-125"
+            />
           </a>
         </Button>
 
         {/* Subject */}
-        <h1 className="min-w-0 flex-1 truncate text-ui-base font-semibold text-text-primary">
+        <h1 className="min-w-0 flex-1 truncate text-ui-base font-semibold text-text-primary max-md:text-ui-sm">
           {subject}
         </h1>
 
-        {/* Action buttons */}
+        {/* Action buttons — hide less important ones on mobile */}
         <div className="flex shrink-0 items-center gap-0.5">
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-7 w-7 max-md:h-11 max-md:w-11"
             aria-label="Reply"
             onClick={() => {
-              // Scroll to reply bar
               document.getElementById('reply-bar')?.scrollIntoView({ behavior: 'smooth' });
             }}
           >
@@ -298,17 +302,35 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
               strokeWidth={1.5}
             />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Forward" disabled>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 max-md:hidden"
+            aria-label="Forward"
+            disabled
+          >
             <HugeiconsIcon
               icon={ArrowTurnForwardIcon as IconSvgElement}
               size={14}
               strokeWidth={1.5}
             />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Archive" disabled>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 max-md:hidden"
+            aria-label="Archive"
+            disabled
+          >
             <HugeiconsIcon icon={Archive01Icon as IconSvgElement} size={14} strokeWidth={1.5} />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Move" disabled>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 max-md:hidden"
+            aria-label="Move"
+            disabled
+          >
             <HugeiconsIcon
               icon={FolderTransferIcon as IconSvgElement}
               size={14}
@@ -318,7 +340,7 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-danger hover:text-danger"
+            className="h-7 w-7 max-md:h-11 max-md:w-11 text-danger hover:text-danger"
             aria-label="Delete"
             disabled
           >
@@ -327,15 +349,15 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
         </div>
       </div>
 
-      {/* Scrollable message content */}
+      {/* Scrollable message content — full width on mobile */}
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-3xl px-4 py-4">
+        <div className="mx-auto max-w-3xl px-4 py-4 max-md:px-3 max-md:py-3">
           {/* Message metadata */}
           <div className="space-y-1.5">
             {/* From */}
-            <div className="flex items-baseline gap-1.5">
+            <div className="flex items-baseline gap-1.5 max-md:flex-wrap">
               <span className="shrink-0 text-ui-xs text-text-secondary">From:</span>
-              <span className="font-mono text-ui-xs font-medium text-text-primary">
+              <span className="min-w-0 truncate font-mono text-ui-xs font-medium text-text-primary">
                 {message.fromAddress}
               </span>
             </div>
@@ -352,14 +374,14 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
             </div>
 
             {/* Verification badges */}
-            <div className="flex items-center gap-1.5 pt-1">
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
               <VerificationBadge label="DKIM" status={message.dkimStatus} />
               <VerificationBadge label="SPF" status={message.spfStatus} />
               <VerificationBadge label="DMARC" status={message.dmarcStatus} />
             </div>
           </div>
 
-          <Separator className="my-4" />
+          <Separator className="my-4 max-md:my-3" />
 
           {/* Message body */}
           {showEncryptedPlaceholder ? (
@@ -372,9 +394,9 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
             />
           )}
 
-          {/* Thread continuation hint */}
+          {/* Thread continuation hint — hide on mobile for cleaner view */}
           {message.messageId && (
-            <div className="mt-6">
+            <div className="mt-6 max-md:hidden">
               <Separator className="mb-4" />
               <p className="text-ui-xs text-text-secondary">
                 <span className="font-mono text-text-secondary/60">Message-ID: </span>
@@ -384,7 +406,7 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
           )}
 
           {/* Reply bar */}
-          <div id="reply-bar" className="mt-6 pb-6">
+          <div id="reply-bar" className="mt-6 pb-6 max-md:mt-4 max-md:pb-4">
             <ReplyBar />
           </div>
         </div>

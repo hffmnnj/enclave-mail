@@ -120,7 +120,8 @@ const MessageRow = ({
   return (
     <li
       className={cn(
-        'group flex h-9 items-center gap-2 border-b border-border px-3 transition-fast',
+        'group flex items-center gap-2 border-b border-border px-3 transition-fast',
+        'h-9 max-md:h-12',
         'hover:bg-surface-raised',
         isUnread ? 'bg-surface/80' : 'bg-background',
         isSelected && 'border-l-2 border-l-primary bg-primary/5',
@@ -128,8 +129,8 @@ const MessageRow = ({
       )}
       data-unread={isUnread || undefined}
     >
-      {/* Checkbox */}
-      <div className="flex shrink-0 items-center">
+      {/* Checkbox — hidden on mobile (swipe gestures replace selection) */}
+      <div className="flex shrink-0 items-center max-md:hidden">
         <input
           type="checkbox"
           checked={isSelected}
@@ -143,7 +144,7 @@ const MessageRow = ({
       <button
         type="button"
         onClick={onClick}
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 bg-transparent p-0 text-left"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 bg-transparent p-0 text-left max-md:gap-1.5"
         aria-label={`Open message from ${message.fromAddress}: ${subject}`}
       >
         {/* Read/Unread indicator */}
@@ -156,26 +157,49 @@ const MessageRow = ({
           />
         </span>
 
-        {/* Sender */}
-        <span
-          className={cn(
-            'w-40 shrink-0 truncate font-mono text-ui-xs',
-            isUnread ? 'font-medium text-text-primary' : 'text-text-secondary',
-          )}
-          title={message.fromAddress}
-        >
-          {message.fromAddress}
-        </span>
+        {/* Desktop: single-line layout | Mobile: stacked sender + subject */}
+        <div className="hidden min-w-0 flex-1 items-center gap-2 md:flex">
+          {/* Sender */}
+          <span
+            className={cn(
+              'w-40 shrink-0 truncate font-mono text-ui-xs',
+              isUnread ? 'font-medium text-text-primary' : 'text-text-secondary',
+            )}
+            title={message.fromAddress}
+          >
+            {message.fromAddress}
+          </span>
 
-        {/* Subject */}
-        <span
-          className={cn(
-            'min-w-0 flex-1 truncate text-ui-sm',
-            isUnread ? 'font-medium text-text-primary' : 'text-text-secondary',
-          )}
-        >
-          {subject}
-        </span>
+          {/* Subject */}
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-ui-sm',
+              isUnread ? 'font-medium text-text-primary' : 'text-text-secondary',
+            )}
+          >
+            {subject}
+          </span>
+        </div>
+
+        {/* Mobile: stacked layout */}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 md:hidden">
+          <span
+            className={cn(
+              'truncate font-mono text-ui-xs',
+              isUnread ? 'font-medium text-text-primary' : 'text-text-secondary',
+            )}
+          >
+            {message.fromAddress}
+          </span>
+          <span
+            className={cn(
+              'truncate text-ui-xs',
+              isUnread ? 'text-text-primary' : 'text-text-secondary/70',
+            )}
+          >
+            {subject}
+          </span>
+        </div>
 
         {/* Flagged indicator */}
         {isFlagged && (
@@ -187,11 +211,11 @@ const MessageRow = ({
           />
         )}
 
-        {/* Encryption status */}
+        {/* Encryption status — hidden on mobile for space */}
         <TooltipProvider delayDuration={300}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="flex shrink-0 items-center">
+              <span className="flex shrink-0 items-center max-md:hidden">
                 <HugeiconsIcon
                   icon={encConfig.icon as IconSvgElement}
                   size={12}
@@ -206,10 +230,11 @@ const MessageRow = ({
           </Tooltip>
         </TooltipProvider>
 
-        {/* Date */}
+        {/* Date — compact on mobile */}
         <span
           className={cn(
-            'w-24 shrink-0 text-right font-mono text-ui-xs',
+            'shrink-0 text-right font-mono text-ui-xs',
+            'w-24 max-md:w-auto max-md:text-[10px]',
             isUnread ? 'text-text-primary' : 'text-text-secondary',
           )}
           title={new Date(message.date).toLocaleString()}

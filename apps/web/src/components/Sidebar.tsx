@@ -1,12 +1,14 @@
 import { Badge, ScrollArea, Separator, Skeleton, cn } from '@enclave/ui';
 import {
   Archive01Icon,
+  Cancel01Icon,
   Delete01Icon,
   Folder01Icon,
   InboxIcon,
   Key01Icon,
   Logout01Icon,
   MailSend01Icon,
+  Menu01Icon,
   PencilEdit01Icon,
   Settings01Icon,
 } from '@hugeicons/core-free-icons';
@@ -100,28 +102,39 @@ interface NavLinkProps {
   label: string;
   active: boolean;
   unreadCount?: number;
+  collapsed?: boolean | undefined;
 }
 
-const NavLink = ({ path, icon, label, active, unreadCount }: NavLinkProps) => (
+const NavLink = ({ path, icon, label, active, unreadCount, collapsed }: NavLinkProps) => (
   <a
     href={path}
     className={cn(
-      'flex h-8 items-center gap-2 rounded-sm px-3 text-ui-sm transition-fast',
+      'relative flex items-center gap-2 rounded-sm transition-fast',
+      collapsed ? 'h-10 w-10 justify-center' : 'h-8 px-3',
       active
         ? 'bg-primary/10 text-primary'
         : 'text-text-secondary hover:bg-surface-raised hover:text-text-primary',
     )}
     aria-current={active ? 'page' : undefined}
+    title={collapsed ? label : undefined}
+    aria-label={collapsed ? label : undefined}
   >
-    <HugeiconsIcon icon={icon} size={16} strokeWidth={1.5} className="shrink-0" />
-    <span className="flex-1 truncate">{label}</span>
-    {unreadCount !== undefined && unreadCount > 0 && (
-      <Badge
-        variant="default"
-        className="ml-auto h-4 min-w-[1.25rem] justify-center border-amber/30 bg-amber/10 px-1 text-ui-xs text-amber"
-      >
-        {unreadCount > 99 ? '99+' : unreadCount}
-      </Badge>
+    <HugeiconsIcon icon={icon} size={collapsed ? 18 : 16} strokeWidth={1.5} className="shrink-0" />
+    {!collapsed && (
+      <>
+        <span className="flex-1 truncate text-ui-sm">{label}</span>
+        {unreadCount !== undefined && unreadCount > 0 && (
+          <Badge
+            variant="default"
+            className="ml-auto h-4 min-w-[1.25rem] justify-center border-amber/30 bg-amber/10 px-1 text-ui-xs text-amber"
+          >
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </Badge>
+        )}
+      </>
+    )}
+    {collapsed && unreadCount !== undefined && unreadCount > 0 && (
+      <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2 rounded-full bg-secondary" />
     )}
   </a>
 );
@@ -145,12 +158,18 @@ const bottomNav: StaticNavItem[] = [
 // Skeleton loading state for mailbox list
 // ---------------------------------------------------------------------------
 
-const MailboxSkeleton = () => (
-  <div className="flex flex-col gap-0.5 p-2">
+const MailboxSkeleton = ({ collapsed }: { collapsed?: boolean | undefined }) => (
+  <div className={cn('flex flex-col gap-0.5', collapsed ? 'items-center p-1' : 'p-2')}>
     {Array.from({ length: 5 }).map((_, i) => (
-      <div key={`skel-${String(i)}`} className="flex h-8 items-center gap-2 px-3">
+      <div
+        key={`skel-${String(i)}`}
+        className={cn(
+          'flex items-center',
+          collapsed ? 'h-10 w-10 justify-center' : 'h-8 gap-2 px-3',
+        )}
+      >
         <Skeleton className="h-4 w-4 shrink-0 rounded-sm" />
-        <Skeleton className="h-3 flex-1 rounded-sm" />
+        {!collapsed && <Skeleton className="h-3 flex-1 rounded-sm" />}
       </div>
     ))}
   </div>
@@ -162,13 +181,14 @@ const MailboxSkeleton = () => (
 
 interface MailboxListProps {
   currentPath: string;
+  collapsed?: boolean;
 }
 
-const MailboxList = ({ currentPath }: MailboxListProps) => {
+const MailboxList = ({ currentPath, collapsed }: MailboxListProps) => {
   const { data: mailboxes, isLoading, error } = useMailboxes();
 
   if (isLoading) {
-    return <MailboxSkeleton />;
+    return <MailboxSkeleton collapsed={collapsed} />;
   }
 
   if (error) {
@@ -182,7 +202,10 @@ const MailboxList = ({ currentPath }: MailboxListProps) => {
   const { system, custom } = sortMailboxes(mailboxes);
 
   return (
-    <nav className="flex flex-col gap-0.5 p-2" aria-label="Mailboxes">
+    <nav
+      className={cn('flex flex-col gap-0.5', collapsed ? 'items-center p-1' : 'p-2')}
+      aria-label="Mailboxes"
+    >
       {system.map((m) => (
         <NavLink
           key={m.id}
@@ -191,6 +214,7 @@ const MailboxList = ({ currentPath }: MailboxListProps) => {
           label={m.name}
           active={isActive(currentPath, getMailboxPath(m))}
           unreadCount={m.unreadCount}
+          collapsed={collapsed}
         />
       ))}
 
@@ -205,15 +229,77 @@ const MailboxList = ({ currentPath }: MailboxListProps) => {
               label={m.name}
               active={isActive(currentPath, getMailboxPath(m))}
               unreadCount={m.unreadCount}
+              collapsed={collapsed}
             />
           ))}
         </>
       )}
 
-      <Separator className="my-1" />
-      <FolderManager />
+      {!collapsed && (
+        <>
+          <Separator className="my-1" />
+          <FolderManager />
+        </>
+      )}
     </nav>
   );
+};
+
+// ---------------------------------------------------------------------------
+// Logout handler (shared between expanded and collapsed modes)
+// ---------------------------------------------------------------------------
+
+const handleLogout = () => {
+  const token = (() => {
+    try {
+      return localStorage.getItem('enclave:sessionToken');
+    } catch {
+      return null;
+    }
+  })();
+
+  try {
+    localStorage.removeItem('enclave:sessionToken');
+  } catch {
+    // Storage may be unavailable
+  }
+
+  if (token) {
+    const base =
+      typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL
+        ? (import.meta.env.PUBLIC_API_URL as string)
+        : 'http://localhost:3001';
+
+    fetch(`${base}/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {
+      // Intentionally ignored — fire and forget
+    });
+  }
+
+  window.location.href = '/login';
+};
+
+// ---------------------------------------------------------------------------
+// useMediaQuery hook for responsive behavior
+// ---------------------------------------------------------------------------
+
+const useMediaQuery = (query: string): boolean => {
+  const [matches, setMatches] = React.useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia(query).matches;
+  });
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mql = window.matchMedia(query);
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, [query]);
+
+  return matches;
 };
 
 // ---------------------------------------------------------------------------
@@ -227,52 +313,181 @@ interface SidebarInnerProps {
 }
 
 const SidebarInner = ({ currentPath, isOpen, onClose }: SidebarInnerProps) => {
-  return (
-    <>
-      {/* Mobile overlay */}
-      {isOpen === true && (
-        <div
-          className="fixed inset-0 z-40 bg-background/60 md:hidden"
-          onClick={onClose}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') onClose?.();
-          }}
-          role="button"
-          tabIndex={-1}
-          aria-label="Close sidebar"
-        />
-      )}
+  const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const isMobile = !isTablet && !isDesktop;
 
-      {/* Sidebar */}
+  // Tablet rail: collapsed by default, expandable
+  const [tabletExpanded, setTabletExpanded] = React.useState(false);
+
+  // Close sidebar on Escape key (mobile drawer)
+  React.useEffect(() => {
+    if (!isMobile || !isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMobile, isOpen, onClose]);
+
+  // Lock body scroll when mobile drawer is open
+  React.useEffect(() => {
+    if (!isMobile || !isOpen) return;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isMobile, isOpen]);
+
+  // Determine collapsed state: tablet rail when not expanded
+  const collapsed = isTablet && !tabletExpanded;
+
+  // ---------------------------------------------------------------------------
+  // Mobile drawer
+  // ---------------------------------------------------------------------------
+  if (isMobile) {
+    return (
+      <>
+        {/* Overlay */}
+        {isOpen && (
+          <div
+            className="overlay-fade fixed inset-0 z-40 bg-background/60"
+            onClick={onClose}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') onClose?.();
+            }}
+            role="button"
+            tabIndex={-1}
+            aria-label="Close sidebar"
+          />
+        )}
+
+        {/* Drawer */}
+        <aside
+          className={cn(
+            'sidebar-drawer fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-surface safe-area-inset',
+            isOpen ? 'translate-x-0' : '-translate-x-full',
+          )}
+          aria-label="Sidebar navigation"
+          aria-hidden={!isOpen}
+        >
+          {/* Header with close button */}
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
+            <a href="/mail/inbox" className="flex items-center gap-1.5 text-primary">
+              <span className="font-mono text-ui-md font-semibold" aria-hidden="true">
+                &oplus;
+              </span>
+              <span className="font-mono text-ui-sm font-semibold tracking-wide">Enclave</span>
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-11 w-11 items-center justify-center rounded-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-text-primary"
+              aria-label="Close navigation"
+            >
+              <HugeiconsIcon icon={Cancel01Icon as IconSvgElement} size={18} strokeWidth={1.5} />
+            </button>
+          </div>
+
+          {/* Navigation */}
+          <ScrollArea className="flex-1">
+            <MailboxList currentPath={currentPath} />
+          </ScrollArea>
+
+          {/* Bottom section */}
+          <div className="shrink-0">
+            <Separator />
+            <nav className="flex flex-col gap-0.5 p-2" aria-label="Settings">
+              {bottomNav.map((item) => (
+                <NavLink
+                  key={item.path}
+                  path={item.path}
+                  icon={item.icon}
+                  label={item.label}
+                  active={isActive(currentPath, item.path)}
+                />
+              ))}
+              <button
+                type="button"
+                className="flex h-10 w-full items-center gap-2 rounded-sm px-3 text-ui-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-danger"
+                onClick={handleLogout}
+              >
+                <HugeiconsIcon
+                  icon={Logout01Icon as IconSvgElement}
+                  size={16}
+                  strokeWidth={1.5}
+                  className="shrink-0"
+                />
+                <span>Logout</span>
+              </button>
+            </nav>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tablet rail / expanded sidebar
+  // ---------------------------------------------------------------------------
+  if (isTablet) {
+    return (
       <aside
         className={cn(
-          'flex h-full w-56 shrink-0 flex-col border-r border-border bg-surface',
-          'fixed inset-y-0 left-0 z-50 transition-transform duration-200 md:relative md:z-auto md:translate-x-0',
-          isOpen === true ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
-          isOpen === undefined && 'hidden md:flex',
-          isOpen !== undefined && 'flex',
+          'sidebar-drawer flex h-full shrink-0 flex-col border-r border-border bg-surface',
+          collapsed ? 'w-14' : 'w-56',
         )}
         aria-label="Sidebar navigation"
       >
         {/* Logo area */}
-        <div className="flex h-10 shrink-0 items-center border-b border-border px-3">
-          <a href="/mail/inbox" className="flex items-center gap-1.5 text-primary">
-            <span className="font-mono text-ui-md font-semibold" aria-hidden="true">
-              &oplus;
-            </span>
-            <span className="font-mono text-ui-sm font-semibold tracking-wide">Enclave</span>
-          </a>
+        <div
+          className={cn(
+            'flex h-10 shrink-0 items-center border-b border-border',
+            collapsed ? 'justify-center px-1' : 'px-3',
+          )}
+        >
+          {collapsed ? (
+            <button
+              type="button"
+              onClick={() => setTabletExpanded(true)}
+              className="flex h-8 w-8 items-center justify-center rounded-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-text-primary"
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+            >
+              <HugeiconsIcon icon={Menu01Icon as IconSvgElement} size={16} strokeWidth={1.5} />
+            </button>
+          ) : (
+            <div className="flex w-full items-center justify-between">
+              <a href="/mail/inbox" className="flex items-center gap-1.5 text-primary">
+                <span className="font-mono text-ui-md font-semibold" aria-hidden="true">
+                  &oplus;
+                </span>
+                <span className="font-mono text-ui-sm font-semibold tracking-wide">Enclave</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setTabletExpanded(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-text-primary"
+                aria-label="Collapse sidebar"
+              >
+                <HugeiconsIcon icon={Cancel01Icon as IconSvgElement} size={14} strokeWidth={1.5} />
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Main navigation — live mailbox data */}
+        {/* Navigation */}
         <ScrollArea className="flex-1">
-          <MailboxList currentPath={currentPath} />
+          <MailboxList currentPath={currentPath} collapsed={collapsed} />
         </ScrollArea>
 
         {/* Bottom section */}
         <div className="shrink-0">
           <Separator />
-          <nav className="flex flex-col gap-0.5 p-2" aria-label="Settings">
+          <nav
+            className={cn('flex flex-col gap-0.5', collapsed ? 'items-center p-1' : 'p-2')}
+            aria-label="Settings"
+          >
             {bottomNav.map((item) => (
               <NavLink
                 key={item.path}
@@ -280,58 +495,85 @@ const SidebarInner = ({ currentPath, isOpen, onClose }: SidebarInnerProps) => {
                 icon={item.icon}
                 label={item.label}
                 active={isActive(currentPath, item.path)}
+                collapsed={collapsed}
               />
             ))}
             <button
               type="button"
-              className="flex h-8 w-full items-center gap-2 rounded-sm px-3 text-ui-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-danger"
-              onClick={() => {
-                const token = (() => {
-                  try {
-                    return localStorage.getItem('enclave:sessionToken');
-                  } catch {
-                    return null;
-                  }
-                })();
-
-                // Clear session token first
-                try {
-                  localStorage.removeItem('enclave:sessionToken');
-                } catch {
-                  // Storage may be unavailable
-                }
-
-                // POST logout to server (best effort, fire and forget)
-                if (token) {
-                  const base =
-                    typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL
-                      ? (import.meta.env.PUBLIC_API_URL as string)
-                      : 'http://localhost:3001';
-
-                  fetch(`${base}/auth/logout`, {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${token}` },
-                  }).catch(() => {
-                    // Intentionally ignored — fire and forget
-                  });
-                }
-
-                // Redirect to login
-                window.location.href = '/login';
-              }}
+              className={cn(
+                'flex items-center rounded-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-danger',
+                collapsed ? 'h-10 w-10 justify-center' : 'h-8 w-full gap-2 px-3 text-ui-sm',
+              )}
+              onClick={handleLogout}
+              title={collapsed ? 'Logout' : undefined}
+              aria-label={collapsed ? 'Logout' : undefined}
             >
               <HugeiconsIcon
                 icon={Logout01Icon as IconSvgElement}
-                size={16}
+                size={collapsed ? 18 : 16}
                 strokeWidth={1.5}
                 className="shrink-0"
               />
-              <span>Logout</span>
+              {!collapsed && <span>Logout</span>}
             </button>
           </nav>
         </div>
       </aside>
-    </>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Desktop — full sidebar (original behavior)
+  // ---------------------------------------------------------------------------
+  return (
+    <aside
+      className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-surface"
+      aria-label="Sidebar navigation"
+    >
+      {/* Logo area */}
+      <div className="flex h-10 shrink-0 items-center border-b border-border px-3">
+        <a href="/mail/inbox" className="flex items-center gap-1.5 text-primary">
+          <span className="font-mono text-ui-md font-semibold" aria-hidden="true">
+            &oplus;
+          </span>
+          <span className="font-mono text-ui-sm font-semibold tracking-wide">Enclave</span>
+        </a>
+      </div>
+
+      {/* Main navigation — live mailbox data */}
+      <ScrollArea className="flex-1">
+        <MailboxList currentPath={currentPath} />
+      </ScrollArea>
+
+      {/* Bottom section */}
+      <div className="shrink-0">
+        <Separator />
+        <nav className="flex flex-col gap-0.5 p-2" aria-label="Settings">
+          {bottomNav.map((item) => (
+            <NavLink
+              key={item.path}
+              path={item.path}
+              icon={item.icon}
+              label={item.label}
+              active={isActive(currentPath, item.path)}
+            />
+          ))}
+          <button
+            type="button"
+            className="flex h-8 w-full items-center gap-2 rounded-sm px-3 text-ui-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-danger"
+            onClick={handleLogout}
+          >
+            <HugeiconsIcon
+              icon={Logout01Icon as IconSvgElement}
+              size={16}
+              strokeWidth={1.5}
+              className="shrink-0"
+            />
+            <span>Logout</span>
+          </button>
+        </nav>
+      </div>
+    </aside>
   );
 };
 

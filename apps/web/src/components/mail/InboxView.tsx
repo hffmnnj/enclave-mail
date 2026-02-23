@@ -1,6 +1,7 @@
 import { Badge, Button, ScrollArea, Skeleton } from '@enclave/ui';
 import {
   Alert02Icon,
+  Archive01Icon,
   Cancel01Icon,
   Delete01Icon,
   InboxIcon,
@@ -18,6 +19,7 @@ import { useDeleteMessage, useMessages, useUpdateMessageFlags } from '../../hook
 import { useSearch, useSearchState } from '../../hooks/use-search.js';
 import { getQueryClient } from '../../lib/query-client.js';
 import { MessageRow } from './MessageRow.js';
+import { SwipeableMessageRow } from './SwipeableMessageRow.js';
 
 import type { MessageListItem } from '../../hooks/use-messages.js';
 
@@ -70,6 +72,27 @@ const tryDecryptSubject = (base64Subject: string): string | undefined => {
   } catch {
     return undefined;
   }
+};
+
+// ---------------------------------------------------------------------------
+// useIsMobile hook
+// ---------------------------------------------------------------------------
+
+const useIsMobile = (): boolean => {
+  const [isMobile, setIsMobile] = React.useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 768;
+  });
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mql = window.matchMedia('(max-width: 767px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
+
+  return isMobile;
 };
 
 // ---------------------------------------------------------------------------
@@ -147,14 +170,14 @@ const BulkActions = ({
 
 const MessageSkeleton = ({ index }: { index: number }) => (
   <div
-    className="flex h-9 items-center gap-2 border-b border-border px-3"
+    className="flex h-9 items-center gap-2 border-b border-border px-3 md:h-9"
     style={{ opacity: 1 - index * 0.06 }}
   >
     <Skeleton className="size-3.5 rounded-sm" />
     <Skeleton className="h-3 w-3" />
-    <Skeleton className="h-3 w-36" />
+    <Skeleton className="h-3 w-36 max-md:w-20" />
     <Skeleton className="h-3 flex-1" />
-    <Skeleton className="h-3 w-20" />
+    <Skeleton className="h-3 w-20 max-md:hidden" />
   </div>
 );
 
@@ -210,6 +233,32 @@ const ErrorState = ({ message, onRetry }: ErrorStateProps) => (
 );
 
 // ---------------------------------------------------------------------------
+// Swipe action indicators (shown behind message row on swipe)
+// ---------------------------------------------------------------------------
+
+const SwipeArchiveIndicator = () => (
+  <div className="flex h-full items-center justify-end bg-danger/80 px-4">
+    <HugeiconsIcon
+      icon={Archive01Icon as IconSvgElement}
+      size={20}
+      strokeWidth={1.5}
+      className="text-white"
+    />
+  </div>
+);
+
+const SwipeDeleteIndicator = () => (
+  <div className="flex h-full items-center justify-start bg-secondary/80 px-4">
+    <HugeiconsIcon
+      icon={Delete01Icon as IconSvgElement}
+      size={20}
+      strokeWidth={1.5}
+      className="text-white"
+    />
+  </div>
+);
+
+// ---------------------------------------------------------------------------
 // Inner inbox view (requires QueryClientProvider ancestor)
 // ---------------------------------------------------------------------------
 
@@ -221,6 +270,7 @@ const InboxViewInner = ({ mailboxId }: InboxViewInnerProps) => {
   const [page, setPage] = React.useState(0);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const limit = 50;
+  const isMobile = useIsMobile();
 
   // Search state — reads from URL params (shared with Header island)
   const {
@@ -320,6 +370,23 @@ const InboxViewInner = ({ mailboxId }: InboxViewInnerProps) => {
   const handleMessageClick = React.useCallback((message: MessageListItem) => {
     window.location.href = `/mail/message/${message.id}`;
   }, []);
+
+  // Swipe actions (mobile only)
+  const handleSwipeArchive = React.useCallback(
+    (messageId: string) => {
+      // Move to archive — for now use flag update as placeholder
+      // Full move-to-archive will use useMoveMessage when wired
+      updateFlags.mutate({ messageId, flags: { seen: true } });
+    },
+    [updateFlags],
+  );
+
+  const handleSwipeDelete = React.useCallback(
+    (messageId: string) => {
+      deleteMessage.mutate(messageId);
+    },
+    [deleteMessage],
+  );
 
   // Clear selection when navigating pages
   const prevPageRef = React.useRef(page);
@@ -441,16 +508,31 @@ const InboxViewInner = ({ mailboxId }: InboxViewInnerProps) => {
           </div>
         ) : (
           <ul className="list-none p-0" aria-label="Message list">
-            {messages.map((message) => (
-              <MessageRow
-                key={message.id}
-                message={message}
-                decryptedSubject={decryptedSubjects.get(message.id) ?? undefined}
-                isSelected={selectedIds.has(message.id)}
-                onSelect={handleSelect}
-                onClick={() => handleMessageClick(message)}
-              />
-            ))}
+            {messages.map((message) =>
+              isMobile ? (
+                <SwipeableMessageRow
+                  key={message.id}
+                  message={message}
+                  decryptedSubject={decryptedSubjects.get(message.id) ?? undefined}
+                  isSelected={selectedIds.has(message.id)}
+                  onSelect={handleSelect}
+                  onClick={() => handleMessageClick(message)}
+                  onSwipeLeft={() => handleSwipeArchive(message.id)}
+                  onSwipeRight={() => handleSwipeDelete(message.id)}
+                  leftIndicator={<SwipeArchiveIndicator />}
+                  rightIndicator={<SwipeDeleteIndicator />}
+                />
+              ) : (
+                <MessageRow
+                  key={message.id}
+                  message={message}
+                  decryptedSubject={decryptedSubjects.get(message.id) ?? undefined}
+                  isSelected={selectedIds.has(message.id)}
+                  onSelect={handleSelect}
+                  onClick={() => handleMessageClick(message)}
+                />
+              ),
+            )}
           </ul>
         )}
       </ScrollArea>
