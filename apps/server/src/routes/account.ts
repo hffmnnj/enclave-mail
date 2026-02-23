@@ -1,6 +1,9 @@
+import { db, users } from '@enclave/db';
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
+import type { AuthVariables } from '../middleware/auth.js';
 import { AccountServiceError, createAccount } from '../services/account-service.js';
 
 const hexRegex = /^[0-9a-f]+$/i;
@@ -23,10 +26,11 @@ const accountCreateSchema = z.object({
 
 interface AccountRouteDeps {
   createAccountFn: typeof createAccount;
+  confirmKeyExportFn: (userId: string) => Promise<void>;
 }
 
-export const createAccountRouter = (deps: AccountRouteDeps): Hono => {
-  const router = new Hono();
+export const createAccountRouter = (deps: AccountRouteDeps): Hono<{ Variables: AuthVariables }> => {
+  const router = new Hono<{ Variables: AuthVariables }>();
 
   router.post('/account/create', async (c) => {
     let body: unknown;
@@ -71,7 +75,30 @@ export const createAccountRouter = (deps: AccountRouteDeps): Hono => {
     }
   });
 
+  router.post('/account/confirm-key-export', async (c) => {
+    const userId = c.get('userId');
+
+    try {
+      await deps.confirmKeyExportFn(userId);
+      return c.json({ success: true }, 200);
+    } catch (error) {
+      console.error('confirm-key-export-failed', error);
+      return c.json({ error: 'INTERNAL_ERROR' }, 500);
+    }
+  });
+
   return router;
 };
 
-export const accountRouter = createAccountRouter({ createAccountFn: createAccount });
+// ---------------------------------------------------------------------------
+// Default instance wired to real dependencies
+// ---------------------------------------------------------------------------
+
+const confirmKeyExport = async (userId: string): Promise<void> => {
+  await db.update(users).set({ keyExportConfirmed: true }).where(eq(users.id, userId));
+};
+
+export const accountRouter = createAccountRouter({
+  createAccountFn: createAccount,
+  confirmKeyExportFn: confirmKeyExport,
+});

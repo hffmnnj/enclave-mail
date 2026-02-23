@@ -5,3 +5,9 @@ export type PackageVersion = string;
 export const TYPES_PACKAGE_VERSION: PackageVersion = '0.0.1';
 
 export { QUEUE_NAMES, type QueueName } from './queues.js';
+export {
+  AUTH_ERROR_CODES,
+  type AccountStatus,
+  type AuthErrorCode,
+  type KeyExportStatus,
+} from './account.js';

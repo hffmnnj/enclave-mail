@@ -1,33 +1,16 @@
+import { db, users } from '@enclave/db';
+import { eq } from 'drizzle-orm';
 import { createMiddleware } from 'hono/factory';
 
 import { validateSession } from '../auth/session-manager.js';
 
-/**
- * Hono context variables injected by {@link authMiddleware}.
- *
- * Use this type when defining Hono apps or routes that sit behind
- * the auth middleware so that `c.get('userId')` is typed as `string`.
- *
- * @example
- * ```ts
- * const app = new Hono<{ Variables: AuthVariables }>();
- * app.use('*', authMiddleware);
- * app.get('/me', (c) => c.json({ userId: c.get('userId') }));
- * ```
- */
 export type AuthVariables = {
   userId: string;
 };
 
 /**
- * Hono middleware that validates a Bearer token from the
- * `Authorization` header and injects the authenticated `userId`
- * into the Hono context.
- *
- * Requests without a valid token receive a generic 401 response.
- * The error message is intentionally vague to avoid leaking
- * information about why authentication failed (missing, expired,
- * or invalid token).
+ * Hono middleware that validates a Bearer token and injects `userId`
+ * into context. Requests without a valid token receive a generic 401.
  */
 export const createAuthMiddleware = (validateSessionFn: typeof validateSession) =>
   createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
@@ -54,3 +37,56 @@ export const createAuthMiddleware = (validateSessionFn: typeof validateSession) 
   });
 
 export const authMiddleware = createAuthMiddleware(validateSession);
+
+// ---------------------------------------------------------------------------
+// Key export enforcement
+// ---------------------------------------------------------------------------
+
+/**
+ * Lookup function signature for checking a user's key export status.
+ * Returns null when the userId does not exist in the database.
+ */
+export type LookupKeyExportFn = (userId: string) => Promise<{ keyExportConfirmed: boolean } | null>;
+
+/**
+ * Hono middleware that gates access behind the `key_export_confirmed`
+ * flag. Must be placed AFTER `authMiddleware` in the chain so that
+ * `userId` is available in context.
+ *
+ * Usage in protected mailbox routes:
+ * ```ts
+ * app.get('/mailbox/*', authMiddleware, requireKeyExport, handler)
+ * ```
+ */
+export const createRequireKeyExportMiddleware = (lookupFn: LookupKeyExportFn) =>
+  createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
+    const userId = c.get('userId');
+
+    const user = await lookupFn(userId);
+
+    if (!user) {
+      return c.json({ error: 'UNAUTHORIZED' }, 401);
+    }
+
+    if (!user.keyExportConfirmed) {
+      return c.json(
+        {
+          error: 'KEY_EXPORT_REQUIRED',
+          message: 'You must export your encryption keys before accessing mail',
+        },
+        403,
+      );
+    }
+
+    await next();
+  });
+
+const defaultLookup: LookupKeyExportFn = async (userId) => {
+  const rows = await db
+    .select({ keyExportConfirmed: users.keyExportConfirmed })
+    .from(users)
+    .where(eq(users.id, userId));
+  return rows[0] ?? null;
+};
+
+export const requireKeyExport = createRequireKeyExportMiddleware(defaultLookup);

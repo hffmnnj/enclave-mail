@@ -4,7 +4,9 @@ import { Hono } from 'hono';
 const validateSessionMock = mock(
   async (_token: string): Promise<{ userId: string; expiresAt: Date } | null> => null,
 );
-const { createAuthMiddleware } = await import('./auth.js');
+const { createAuthMiddleware, createRequireKeyExportMiddleware } = await import('./auth.js');
+
+type LookupKeyExportFn = (userId: string) => Promise<{ keyExportConfirmed: boolean } | null>;
 
 // ---------------------------------------------------------------------------
 // Test app — a minimal Hono instance with the auth middleware applied
@@ -154,5 +156,60 @@ describe('authMiddleware', () => {
     expect(await res1.json()).toEqual({ userId: 'user-a' });
     expect(await res2.json()).toEqual({ userId: 'user-b' });
     expect(validateSessionMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requireKeyExport middleware
+// ---------------------------------------------------------------------------
+
+describe('requireKeyExport', () => {
+  function createKeyExportApp(lookupFn: LookupKeyExportFn) {
+    const middleware = createRequireKeyExportMiddleware(lookupFn);
+    const app = new Hono<{ Variables: { userId: string } }>();
+
+    // Simulate authMiddleware — inject userId before requireKeyExport runs
+    app.use('*', async (c, next) => {
+      c.set('userId', 'user-42');
+      await next();
+    });
+    app.use('*', middleware);
+    app.get('/mailbox', (c) => c.json({ data: 'inbox-contents' }));
+
+    return app;
+  }
+
+  test('passes through when key export is confirmed', async () => {
+    const lookupFn = mock<LookupKeyExportFn>(async () => ({ keyExportConfirmed: true }));
+    const app = createKeyExportApp(lookupFn);
+
+    const res = await app.request('/mailbox');
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: 'inbox-contents' });
+    expect(lookupFn).toHaveBeenCalledWith('user-42');
+  });
+
+  test('blocks with 403 and KEY_EXPORT_REQUIRED when flag is false', async () => {
+    const lookupFn = mock<LookupKeyExportFn>(async () => ({ keyExportConfirmed: false }));
+    const app = createKeyExportApp(lookupFn);
+
+    const res = await app.request('/mailbox');
+
+    expect(res.status).toBe(403);
+
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe('KEY_EXPORT_REQUIRED');
+    expect(body.message).toBe('You must export your encryption keys before accessing mail');
+  });
+
+  test('returns 401 when userId is not found in database', async () => {
+    const lookupFn = mock<LookupKeyExportFn>(async () => null);
+    const app = createKeyExportApp(lookupFn);
+
+    const res = await app.request('/mailbox');
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'UNAUTHORIZED' });
   });
 });
