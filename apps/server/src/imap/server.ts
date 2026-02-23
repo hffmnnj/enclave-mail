@@ -1,4 +1,5 @@
 import { createMailboxCommandHandler } from './commands/mailbox.js';
+import { createMessageCommandHandler } from './commands/message.js';
 import { parseImapCommand } from './parser.js';
 import {
   IMAP_CAPABILITY,
@@ -77,6 +78,7 @@ async function executeCommand(
   command: ImapCommand,
   validateLogin: ValidateImapLoginFn,
   mailboxCommandHandler: (session: ImapSession, command: ImapCommand) => Promise<ImapCommandResult>,
+  messageCommandHandler: (session: ImapSession, command: ImapCommand) => Promise<ImapCommandResult>,
 ): Promise<ImapCommandResult> {
   const responses: string[] = [];
 
@@ -139,6 +141,16 @@ async function executeCommand(
       return mailboxCommandHandler(session, command);
     }
 
+    case 'FETCH':
+    case 'STORE':
+    case 'SEARCH':
+    case 'COPY':
+    case 'EXPUNGE':
+    case 'UID':
+    case 'APPEND': {
+      return messageCommandHandler(session, command);
+    }
+
     default: {
       responses.push(toTagged(command.tag, 'BAD', 'Unsupported command'));
       return { responses, closeConnection: false };
@@ -150,6 +162,7 @@ export function createImapSessionProcessor(options: {
   validateLogin: ValidateImapLoginFn;
 }): ImapSessionProcessor {
   const mailboxCommandHandler = createMailboxCommandHandler();
+  const messageCommandHandler = createMessageCommandHandler();
 
   const session: ImapSession = {
     state: 'NOT_AUTHENTICATED',
@@ -169,7 +182,13 @@ export function createImapSessionProcessor(options: {
         };
       }
 
-      return executeCommand(session, parsed, options.validateLogin, mailboxCommandHandler);
+      return executeCommand(
+        session,
+        parsed,
+        options.validateLogin,
+        mailboxCommandHandler,
+        messageCommandHandler,
+      );
     },
   };
 }

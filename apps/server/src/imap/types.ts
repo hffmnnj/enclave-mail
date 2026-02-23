@@ -27,7 +27,7 @@ export type ValidateImapLoginFn = (
 ) => Promise<ImapAuthResult | null>;
 
 export interface ImapCommandResult {
-  responses: string[];
+  responses: Array<string | Uint8Array>;
   closeConnection: boolean;
 }
 
