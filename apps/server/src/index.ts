@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 
 import { accountRouter } from './routes/account.js';
 import { authRouter } from './routes/auth.js';
+import { startSMTPServer } from './smtp/server.js';
 
 const app = new Hono();
 
@@ -23,6 +24,20 @@ app.route('/', authRouter);
 app.route('/', accountRouter);
 
 const PORT = Number(process.env.API_PORT) || 3001;
+
+const smtpServer = startSMTPServer({ cwd: process.cwd() });
+
+process.on('exit', () => {
+  smtpServer.kill();
+});
+
+process.on('SIGINT', () => {
+  smtpServer.kill();
+});
+
+process.on('SIGTERM', () => {
+  smtpServer.kill();
+});
 
 console.log(`Enclave Mail Server running on http://localhost:${PORT}`);
 

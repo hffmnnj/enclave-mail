@@ -1,3 +1,5 @@
+import type { InboundMailJob as SharedInboundMailJob } from '@enclave/types';
+
 /**
  * Job payload for outbound mail delivery via SMTP relay.
  * Enqueued when a user sends a message; processed by the
@@ -24,20 +26,7 @@ export interface OutboundMailJob {
  * external server; processed by the inbound pipeline which
  * handles SPF/DKIM/DMARC verification and storage.
  */
-export interface InboundMailJob {
-  /** Raw SMTP DATA content (base64-encoded if binary) */
-  rawEmail: string;
-  /** Connecting IP address for SPF verification */
-  sourceIp: string;
-  /** TLS connection details from the SMTP session */
-  tlsInfo: {
-    secured: boolean;
-    cipher?: string;
-    version?: string;
-  };
-  /** ISO 8601 timestamp of when the message was received */
-  receivedAt: string;
-}
+export type InboundMailJob = SharedInboundMailJob;
 
 /**
  * Job payload for the dead-letter queue.

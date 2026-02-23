@@ -11,3 +11,13 @@ export const QUEUE_NAMES = {
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
+
+export interface InboundMailJob {
+  rawEmail: string;
+  sourceIp: string;
+  tlsInfo: {
+    secured: boolean;
+    cipher?: string;
+    version?: string;
+  };
+}
