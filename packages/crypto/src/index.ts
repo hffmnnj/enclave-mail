@@ -29,3 +29,6 @@ export * from './key-export.js';
 export * from './srp/types.js';
 export * from './srp/client.js';
 export * from './srp/server.js';
+export * from './ratchet/types.js';
+export * from './ratchet/x3dh.js';
+export * from './ratchet/double-ratchet.js';
