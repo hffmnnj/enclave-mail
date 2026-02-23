@@ -1,5 +1,7 @@
+import { createIdleCommandHandler } from './commands/idle.js';
 import { createMailboxCommandHandler } from './commands/mailbox.js';
 import { createMessageCommandHandler } from './commands/message.js';
+import type { subscribeMailboxUpdates } from './notify.js';
 import { parseImapCommand } from './parser.js';
 import {
   IMAP_CAPABILITY,
@@ -79,6 +81,7 @@ async function executeCommand(
   validateLogin: ValidateImapLoginFn,
   mailboxCommandHandler: (session: ImapSession, command: ImapCommand) => Promise<ImapCommandResult>,
   messageCommandHandler: (session: ImapSession, command: ImapCommand) => Promise<ImapCommandResult>,
+  idleCommandHandler: ReturnType<typeof createIdleCommandHandler>,
 ): Promise<ImapCommandResult> {
   const responses: string[] = [];
 
@@ -124,10 +127,19 @@ async function executeCommand(
     }
 
     case 'LOGOUT': {
+      idleCommandHandler.cleanup(session);
       session.state = 'LOGOUT';
       responses.push(toUntagged('BYE Enclave IMAP closing'));
       responses.push(toTagged(command.tag, 'OK', 'LOGOUT completed'));
       return { responses, closeConnection: true };
+    }
+
+    case 'IDLE': {
+      return idleCommandHandler.handleIdle(session, command);
+    }
+
+    case 'DONE': {
+      return idleCommandHandler.handleDone(session);
     }
 
     case 'LIST':
@@ -160,14 +172,30 @@ async function executeCommand(
 
 export function createImapSessionProcessor(options: {
   validateLogin: ValidateImapLoginFn;
+  pushResponse?: (response: string) => void;
+  closeConnection?: () => void;
+  subscribeUpdates?: typeof subscribeMailboxUpdates;
+  idleTimeoutMs?: number;
+  setTimer?: (callback: () => void, timeoutMs: number) => ReturnType<typeof setTimeout>;
+  clearTimer?: (handle: ReturnType<typeof setTimeout>) => void;
 }): ImapSessionProcessor {
   const mailboxCommandHandler = createMailboxCommandHandler();
   const messageCommandHandler = createMessageCommandHandler();
+  const idleCommandHandlerOptions = {
+    onPushResponse: options.pushResponse ?? (() => undefined),
+    onCloseConnection: options.closeConnection ?? (() => undefined),
+    ...(options.subscribeUpdates ? { subscribeUpdates: options.subscribeUpdates } : {}),
+    ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
+    ...(options.setTimer ? { setTimer: options.setTimer } : {}),
+    ...(options.clearTimer ? { clearTimer: options.clearTimer } : {}),
+  };
+  const idleCommandHandler = createIdleCommandHandler(idleCommandHandlerOptions);
 
   const session: ImapSession = {
     state: 'NOT_AUTHENTICATED',
     userId: null,
     selectedMailbox: null,
+    isIdling: false,
   };
 
   return {
@@ -188,7 +216,11 @@ export function createImapSessionProcessor(options: {
         options.validateLogin,
         mailboxCommandHandler,
         messageCommandHandler,
+        idleCommandHandler,
       );
+    },
+    onClose: () => {
+      idleCommandHandler.cleanup(session);
     },
   };
 }
@@ -258,7 +290,15 @@ export function startIMAPServer(options: StartImapServerOptions = {}): ImapServe
       },
       socket: {
         open(socket) {
-          const processor = createImapSessionProcessor({ validateLogin });
+          const processor = createImapSessionProcessor({
+            validateLogin,
+            pushResponse: (response) => {
+              socket.write(response);
+            },
+            closeConnection: () => {
+              socket.end();
+            },
+          });
           const context: ConnectionContext = {
             buffer: '',
             queue: [],
@@ -311,6 +351,8 @@ export function startIMAPServer(options: StartImapServerOptions = {}): ImapServe
           });
         },
         close(socket) {
+          const context = sessions.get(socket as ImapSocket);
+          context?.processor.onClose();
           sessions.delete(socket as ImapSocket);
         },
         error(_socket, error) {

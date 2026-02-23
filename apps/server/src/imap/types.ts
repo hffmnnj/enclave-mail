@@ -8,6 +8,10 @@ export interface ImapSession {
   state: ImapConnectionState;
   userId: string | null;
   selectedMailbox: string | null;
+  isIdling?: boolean;
+  idleTag?: string | undefined;
+  idleUnsubscribe?: (() => void) | undefined;
+  idleTimer?: ReturnType<typeof setTimeout> | undefined;
 }
 
 export interface ImapCommand {
@@ -35,6 +39,7 @@ export interface ImapSessionProcessor {
   readonly session: ImapSession;
   onOpen: () => string[];
   onLine: (line: string) => Promise<ImapCommandResult>;
+  onClose: () => void;
 }
 
 export interface ImapLogger {

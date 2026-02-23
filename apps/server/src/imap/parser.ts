@@ -56,6 +56,15 @@ export function parseImapCommand(line: string): ImapCommand | null {
     return null;
   }
 
+  if (normalized.toUpperCase() === 'DONE') {
+    return {
+      tag: '',
+      command: 'DONE',
+      args: [],
+      raw: normalized,
+    };
+  }
+
   const firstSpace = normalized.indexOf(' ');
   if (firstSpace <= 0) {
     return null;

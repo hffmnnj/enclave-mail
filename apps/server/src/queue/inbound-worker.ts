@@ -12,6 +12,7 @@ import type { Job, Worker } from 'bullmq';
 import { Worker as BullWorker } from 'bullmq';
 import { and, eq, sql } from 'drizzle-orm';
 
+import { publishMailboxUpdate } from '../imap/notify.js';
 import { extractMailMetadata, parseRawEmail } from '../smtp/inbound.js';
 import { type VerificationResult, verifyMessage } from '../smtp/verification.js';
 import { createRedisConnection } from './connection.js';
@@ -39,6 +40,7 @@ type RecipientRecord = {
 type RecipientMailbox = {
   id: string;
   uidNext: number;
+  messageCount: number;
 };
 
 type DeliveryInsertInput = {
@@ -56,7 +58,14 @@ type DeliveryInsertInput = {
   verification: VerificationResult;
 };
 
-type DeliveryStoreResult = 'stored' | 'duplicate';
+type DeliveryStoreResult =
+  | {
+      status: 'stored';
+      messageCount: number;
+    }
+  | {
+      status: 'duplicate';
+    };
 
 interface InboundDataStore {
   findUserByEmail: (email: string) => Promise<RecipientRecord | null>;
@@ -169,7 +178,11 @@ function createDatabaseStore(): InboundDataStore {
 
     async findInboxMailbox(userId: string): Promise<RecipientMailbox | null> {
       const rows = await db
-        .select({ id: mailboxes.id, uidNext: mailboxes.uidNext })
+        .select({
+          id: mailboxes.id,
+          uidNext: mailboxes.uidNext,
+          messageCount: mailboxes.messageCount,
+        })
         .from(mailboxes)
         .where(and(eq(mailboxes.userId, userId), eq(mailboxes.type, 'inbox')))
         .limit(1);
@@ -188,7 +201,7 @@ function createDatabaseStore(): InboundDataStore {
           .limit(1);
 
         if (duplicates.length > 0) {
-          return 'duplicate';
+          return { status: 'duplicate' };
         }
 
         const insertedMessages = await tx
@@ -222,7 +235,7 @@ function createDatabaseStore(): InboundDataStore {
           encryptionMetadata: input.encryptionMetadata,
         });
 
-        await tx
+        const updatedMailboxRows = await tx
           .update(mailboxes)
           .set({
             uidNext: sql`${mailboxes.uidNext} + 1`,
@@ -230,9 +243,15 @@ function createDatabaseStore(): InboundDataStore {
             unreadCount: sql`${mailboxes.unreadCount} + 1`,
             updatedAt: new Date(),
           })
-          .where(eq(mailboxes.id, input.mailboxId));
+          .where(eq(mailboxes.id, input.mailboxId))
+          .returning({ messageCount: mailboxes.messageCount });
 
-        return 'stored';
+        const updatedMailbox = updatedMailboxRows[0];
+        if (!updatedMailbox) {
+          throw new Error(`Failed to update mailbox counters for mailbox ${input.mailboxId}`);
+        }
+
+        return { status: 'stored', messageCount: updatedMailbox.messageCount };
       });
     },
   };
@@ -321,7 +340,7 @@ export async function processInboundMailJob(
         verification,
       });
 
-      if (storeResult === 'duplicate') {
+      if (storeResult.status === 'duplicate') {
         deps.logger.info(
           `Skipping duplicate inbound message ${resolvedMessageId} for ${normalizedRecipient}`,
         );
@@ -330,6 +349,7 @@ export async function processInboundMailJob(
       }
 
       result.storedRecipients += 1;
+      publishMailboxUpdate(inboxMailbox.id, storeResult.messageCount);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       deps.logger.error(`Failed inbound delivery for recipient ${normalizedRecipient}: ${message}`);

@@ -76,11 +76,11 @@ describe('inbound worker pipeline', () => {
         dataStore: {
           findUserByEmail: async () => ({ id: 'user-1', email: 'local@example.com' }),
           findActiveX25519PublicKey: async () => recipientKeyPair.publicKey,
-          findInboxMailbox: async () => ({ id: 'mailbox-1', uidNext: 1 }),
+          findInboxMailbox: async () => ({ id: 'mailbox-1', uidNext: 1, messageCount: 0 }),
           storeDelivery: async (input) => {
             storedBody = input.encryptedBody;
             storedMetadata = input.encryptionMetadata;
-            return 'stored';
+            return { status: 'stored', messageCount: 1 };
           },
         },
       },
@@ -108,7 +108,7 @@ describe('inbound worker pipeline', () => {
 
   test('skips unknown recipients gracefully', async () => {
     const warn = mock(() => undefined);
-    const storeDelivery = mock(async () => 'stored' as const);
+    const storeDelivery = mock(async () => ({ status: 'stored', messageCount: 1 }) as const);
 
     const result = await processInboundMailJob(
       {
@@ -152,11 +152,11 @@ describe('inbound worker pipeline', () => {
     const storeDelivery = mock(async (input) => {
       const dedupeKey = `${input.mailboxId}:${input.messageId}`;
       if (deliveredMessageIds.has(dedupeKey)) {
-        return 'duplicate' as const;
+        return { status: 'duplicate' } as const;
       }
 
       deliveredMessageIds.add(dedupeKey);
-      return 'stored' as const;
+      return { status: 'stored', messageCount: 1 } as const;
     });
 
     const deps = {
@@ -169,7 +169,7 @@ describe('inbound worker pipeline', () => {
       dataStore: {
         findUserByEmail: async () => ({ id: 'user-1', email: 'local@example.com' }),
         findActiveX25519PublicKey: async () => recipientKeyPair.publicKey,
-        findInboxMailbox: async () => ({ id: 'mailbox-1', uidNext: 1 }),
+        findInboxMailbox: async () => ({ id: 'mailbox-1', uidNext: 1, messageCount: 0 }),
         storeDelivery,
       },
     };
