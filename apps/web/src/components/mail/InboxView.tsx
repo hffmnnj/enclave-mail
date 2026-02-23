@@ -1,11 +1,13 @@
-import { Button, ScrollArea, Skeleton } from '@enclave/ui';
+import { Badge, Button, ScrollArea, Skeleton } from '@enclave/ui';
 import {
   Alert02Icon,
+  Cancel01Icon,
   Delete01Icon,
   InboxIcon,
   Mail01Icon,
   MailOpen01Icon,
   Refresh01Icon,
+  Search01Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import type { IconSvgElement } from '@hugeicons/react';
@@ -13,6 +15,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import * as React from 'react';
 
 import { useDeleteMessage, useMessages, useUpdateMessageFlags } from '../../hooks/use-messages.js';
+import { useSearch, useSearchState } from '../../hooks/use-search.js';
 import { getQueryClient } from '../../lib/query-client.js';
 import { MessageRow } from './MessageRow.js';
 
@@ -219,14 +222,40 @@ const InboxViewInner = ({ mailboxId }: InboxViewInnerProps) => {
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const limit = 50;
 
+  // Search state — reads from URL params (shared with Header island)
+  const {
+    query: searchQuery,
+    filters: searchFilters,
+    clearSearch,
+    isSearchActive: hasSearch,
+  } = useSearchState();
+  const {
+    results: searchResults,
+    isSearching,
+    resultCount,
+  } = useSearch(mailboxId, searchQuery, searchFilters);
+
+  // Listen for URL changes from the Header island
+  React.useEffect(() => {
+    const handlePopState = () => {
+      // Force re-render when URL changes — useSearchState reads from URL
+      // This is a no-op setState that triggers the component to re-read URL params
+      setPage((p) => p);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const { data, isLoading, isError, error, refetch } = useMessages(mailboxId, { page, limit });
   const updateFlags = useUpdateMessageFlags(mailboxId);
   const deleteMessage = useDeleteMessage(mailboxId);
 
-  const messages = data?.data ?? [];
-  const total = data?.total ?? 0;
-  const hasMore = (page + 1) * limit < total;
-  const hasPrevious = page > 0;
+  // Use search results when searching, otherwise use paginated messages
+  const allMessages = data?.data ?? [];
+  const messages = hasSearch ? searchResults : allMessages;
+  const total = hasSearch ? resultCount : (data?.total ?? 0);
+  const hasMore = !hasSearch && (page + 1) * limit < (data?.total ?? 0);
+  const hasPrevious = !hasSearch && page > 0;
 
   // Decrypt subjects client-side
   const decryptedSubjects = React.useMemo(() => {
@@ -301,13 +330,13 @@ const InboxViewInner = ({ mailboxId }: InboxViewInnerProps) => {
     }
   }
 
-  // Loading state
-  if (isLoading) {
+  // Loading state (for initial load, not search)
+  if (isLoading && !hasSearch) {
     return <LoadingSkeleton />;
   }
 
   // Error state
-  if (isError) {
+  if (isError && !hasSearch) {
     return (
       <ErrorState
         message={error instanceof Error ? error.message : 'An unexpected error occurred'}
@@ -316,13 +345,51 @@ const InboxViewInner = ({ mailboxId }: InboxViewInnerProps) => {
     );
   }
 
-  // Empty state
-  if (messages.length === 0) {
+  // Empty state — no messages at all
+  if (messages.length === 0 && !hasSearch) {
     return <EmptyState />;
   }
 
   return (
     <div className="flex h-full flex-col">
+      {/* Search results banner */}
+      {hasSearch && (
+        <div className="flex h-8 items-center gap-2 border-b border-primary/20 bg-primary/5 px-3">
+          <HugeiconsIcon
+            icon={Search01Icon as IconSvgElement}
+            size={13}
+            strokeWidth={1.5}
+            className="shrink-0 text-primary"
+          />
+          {isSearching ? (
+            <span className="text-ui-xs text-text-secondary">Searching...</span>
+          ) : (
+            <span className="text-ui-xs text-text-primary">
+              {searchQuery && (
+                <>
+                  Results for{' '}
+                  <span className="font-medium font-mono">&ldquo;{searchQuery}&rdquo;</span>
+                </>
+              )}
+              {!searchQuery && 'Filtered results'}
+            </span>
+          )}
+          <Badge variant="outline" className="font-mono">
+            {resultCount} result{resultCount !== 1 ? 's' : ''}
+          </Badge>
+          <div className="flex-1" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 px-2 text-ui-xs"
+            onClick={clearSearch}
+          >
+            <HugeiconsIcon icon={Cancel01Icon as IconSvgElement} size={11} strokeWidth={1.5} />
+            Clear search
+          </Button>
+        </div>
+      )}
+
       {/* Bulk actions bar — visible when messages are selected */}
       {selectedIds.size > 0 && (
         <BulkActions
@@ -355,18 +422,37 @@ const InboxViewInner = ({ mailboxId }: InboxViewInnerProps) => {
 
       {/* Message list */}
       <ScrollArea className="flex-1">
-        <ul className="list-none p-0" aria-label="Message list">
-          {messages.map((message) => (
-            <MessageRow
-              key={message.id}
-              message={message}
-              decryptedSubject={decryptedSubjects.get(message.id) ?? undefined}
-              isSelected={selectedIds.has(message.id)}
-              onSelect={handleSelect}
-              onClick={() => handleMessageClick(message)}
+        {messages.length === 0 && hasSearch ? (
+          <div className="flex flex-col items-center justify-center py-16 text-text-secondary">
+            <HugeiconsIcon
+              icon={Search01Icon as IconSvgElement}
+              size={32}
+              strokeWidth={1}
+              className="mb-3 text-text-secondary/30"
             />
-          ))}
-        </ul>
+            <p className="text-ui-base font-medium">No messages found</p>
+            <p className="mt-1 text-ui-sm text-text-secondary/60">
+              Try adjusting your search or filters.
+            </p>
+            <Button variant="outline" size="sm" className="mt-4 gap-1.5" onClick={clearSearch}>
+              <HugeiconsIcon icon={Cancel01Icon as IconSvgElement} size={13} strokeWidth={1.5} />
+              Clear search
+            </Button>
+          </div>
+        ) : (
+          <ul className="list-none p-0" aria-label="Message list">
+            {messages.map((message) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                decryptedSubject={decryptedSubjects.get(message.id) ?? undefined}
+                isSelected={selectedIds.has(message.id)}
+                onSelect={handleSelect}
+                onClick={() => handleMessageClick(message)}
+              />
+            ))}
+          </ul>
+        )}
       </ScrollArea>
 
       {/* Pagination */}
