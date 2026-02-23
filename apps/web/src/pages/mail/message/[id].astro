@@ -1,0 +1,14 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+import { ThreadView } from '../../../components/mail/ThreadView';
+
+const { id } = Astro.params;
+
+if (!id) {
+  return Astro.redirect('/mail/inbox');
+}
+---
+
+<AppLayout title="Message">
+  <ThreadView client:load messageId={id} />
+</AppLayout>
