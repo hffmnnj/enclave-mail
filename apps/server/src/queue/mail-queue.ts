@@ -25,7 +25,7 @@ export function createOutboundMailQueue(): Queue<OutboundMailJob> {
 /**
  * Create the inbound mail processing queue.
  *
- * Retries up to 3 times with exponential backoff (5 s base).
+ * Retries up to 3 times with exponential backoff (30 s base).
  * Failed jobs are kept for dead-letter processing.
  */
 export function createInboundMailQueue(): Queue<InboundMailJob> {
@@ -33,7 +33,7 @@ export function createInboundMailQueue(): Queue<InboundMailJob> {
     connection: createRedisConnection(),
     defaultJobOptions: {
       attempts: 3,
-      backoff: { type: 'exponential', delay: 5_000 },
+      backoff: { type: 'exponential', delay: 30_000 },
       removeOnComplete: { count: 500 },
       removeOnFail: false,
     },
