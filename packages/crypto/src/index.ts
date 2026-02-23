@@ -25,3 +25,4 @@ export {
 
 export * from './key-derivation.js';
 export * from './encrypted-key-store.js';
+export * from './key-export.js';
