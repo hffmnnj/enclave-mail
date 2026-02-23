@@ -8,6 +8,8 @@
       "@enclave/types/*": ["../../packages/types/src/*"],
       "@enclave/ui": ["../../packages/ui/src/index.ts"],
       "@enclave/ui/*": ["../../packages/ui/src/*"],
+      "@enclave/crypto": ["../../packages/crypto/src/index.ts"],
+      "@enclave/crypto/*": ["../../packages/crypto/src/*"],
       "@enclave/server/*": ["../../apps/server/src/*"]
     }
   },

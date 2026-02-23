@@ -12,6 +12,7 @@
     "@astrojs/node": "^8.0.0",
     "@astrojs/react": "^3.0.0",
     "@astrojs/tailwind": "^5.0.0",
+    "@enclave/crypto": "workspace:*",
     "@enclave/types": "workspace:*",
     "@enclave/ui": "workspace:*",
     "@hugeicons/core-free-icons": "^3.1.1",
