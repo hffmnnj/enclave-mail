@@ -79,6 +79,7 @@ describe('smtp server config', () => {
       .filter((line) => line.length > 0);
 
     expect(plugins).toContain('auth.enclave_auth');
+    expect(plugins).toContain('dkim.enclave_dkim');
     expect(plugins).toContain('queue.enclave_queue');
     expect(plugins).toContain('rcpt_to.enclave_rcpt');
   });

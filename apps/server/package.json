@@ -16,6 +16,7 @@
     "drizzle-orm": "^0.45.1",
     "hono": "^4.0.0",
     "ioredis": "^5.0.0",
+    "mailauth": "^4.13.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
