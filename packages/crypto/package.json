@@ -13,7 +13,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@noble/curves": "^2.0.1"
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1"
   },
   "devDependencies": {
     "bun-types": "^1.3.9"
