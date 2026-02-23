@@ -1,19 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Hono } from 'hono';
 
-// ---------------------------------------------------------------------------
-// Mocks — must be declared before importing the module under test
-// ---------------------------------------------------------------------------
-
 const validateSessionMock = mock(
   async (_token: string): Promise<{ userId: string; expiresAt: Date } | null> => null,
 );
-
-mock.module('../auth/session-manager.js', () => ({
-  validateSession: validateSessionMock,
-}));
-
-const { authMiddleware } = await import('./auth.js');
+const { createAuthMiddleware } = await import('./auth.js');
 
 // ---------------------------------------------------------------------------
 // Test app — a minimal Hono instance with the auth middleware applied
@@ -21,7 +12,7 @@ const { authMiddleware } = await import('./auth.js');
 
 function createTestApp() {
   const app = new Hono<{ Variables: { userId: string } }>();
-  app.use('*', authMiddleware);
+  app.use('*', createAuthMiddleware(validateSessionMock));
   app.get('/protected', (c) => c.json({ userId: c.get('userId') }));
   return app;
 }

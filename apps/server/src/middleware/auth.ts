@@ -29,25 +29,28 @@ export type AuthVariables = {
  * information about why authentication failed (missing, expired,
  * or invalid token).
  */
-export const authMiddleware = createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
-  const authHeader = c.req.header('Authorization');
+export const createAuthMiddleware = (validateSessionFn: typeof validateSession) =>
+  createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
+    const authHeader = c.req.header('Authorization');
 
-  if (!authHeader?.startsWith('Bearer ')) {
-    return c.json({ error: 'UNAUTHORIZED' }, 401);
-  }
+    if (!authHeader?.startsWith('Bearer ')) {
+      return c.json({ error: 'UNAUTHORIZED' }, 401);
+    }
 
-  const token = authHeader.slice(7);
+    const token = authHeader.slice(7);
 
-  if (!token) {
-    return c.json({ error: 'UNAUTHORIZED' }, 401);
-  }
+    if (!token) {
+      return c.json({ error: 'UNAUTHORIZED' }, 401);
+    }
 
-  const session = await validateSession(token);
+    const session = await validateSessionFn(token);
 
-  if (!session) {
-    return c.json({ error: 'UNAUTHORIZED' }, 401);
-  }
+    if (!session) {
+      return c.json({ error: 'UNAUTHORIZED' }, 401);
+    }
 
-  c.set('userId', session.userId);
-  await next();
-});
+    c.set('userId', session.userId);
+    await next();
+  });
+
+export const authMiddleware = createAuthMiddleware(validateSession);

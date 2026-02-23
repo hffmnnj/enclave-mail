@@ -74,6 +74,12 @@ mock.module('@enclave/db', () => ({
     srpSalt: 'srp-salt-column',
     srpVerifier: 'srp-verifier-column',
   },
+  keypairs: {
+    userId: 'keypairs-user-id-column',
+  },
+  mailboxes: {
+    userId: 'mailboxes-user-id-column',
+  },
 }));
 
 mock.module('drizzle-orm', () => ({
