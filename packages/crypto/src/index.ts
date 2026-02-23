@@ -26,6 +26,7 @@ export {
 export * from './key-derivation.js';
 export * from './encrypted-key-store.js';
 export * from './key-export.js';
+export * from './registration.js';
 export * from './srp/types.js';
 export * from './srp/client.js';
 export * from './srp/server.js';
