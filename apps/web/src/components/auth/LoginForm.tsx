@@ -1,0 +1,193 @@
+import { Button, Input } from '@enclave/ui';
+import { ViewIcon, ViewOffIcon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
+import type { IconSvgElement } from '@hugeicons/react';
+import * as React from 'react';
+
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+
+const getApiBaseUrl = (): string => {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL) {
+    return import.meta.env.PUBLIC_API_URL as string;
+  }
+  return 'http://localhost:3001';
+};
+
+interface LoginStartResponse {
+  B: string;
+  salt: string;
+}
+
+interface LoginFinishResponse {
+  sessionToken: string;
+  serverProof: string;
+}
+
+// ---------------------------------------------------------------------------
+// LoginForm
+// ---------------------------------------------------------------------------
+
+const LoginForm = () => {
+  const [email, setEmail] = React.useState('');
+  const [passphrase, setPassphrase] = React.useState('');
+  const [showPassphrase, setShowPassphrase] = React.useState(false);
+  const [status, setStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = React.useState('');
+
+  const canSubmit = email.length > 0 && passphrase.length > 0 && status !== 'loading';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+
+    setStatus('loading');
+    setErrorMessage('');
+
+    const base = getApiBaseUrl();
+
+    try {
+      // Dynamic import for bundle splitting
+      const { srpGenerateEphemeral, srpDeriveSession } = await import('@enclave/crypto');
+
+      // Step 1: Generate ephemeral and start login
+      const clientEphemeral = srpGenerateEphemeral();
+
+      const startResp = await fetch(`${base}/auth/login/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, A: clientEphemeral.public }),
+      });
+
+      if (!startResp.ok) {
+        throw new Error('AUTH_FAILED');
+      }
+
+      const { B, salt } = (await startResp.json()) as LoginStartResponse;
+
+      // Step 2: Derive session and finish login
+      const clientSession = srpDeriveSession(clientEphemeral, B, salt, email, passphrase);
+
+      const finishResp = await fetch(`${base}/auth/login/finish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, clientProof: clientSession.proof }),
+      });
+
+      if (!finishResp.ok) {
+        throw new Error('AUTH_FAILED');
+      }
+
+      const { sessionToken } = (await finishResp.json()) as LoginFinishResponse;
+
+      // Store session token
+      try {
+        localStorage.setItem('enclave:sessionToken', sessionToken);
+      } catch {
+        // Storage may be unavailable
+      }
+
+      // Redirect to inbox
+      window.location.href = '/mail/inbox';
+    } catch {
+      setErrorMessage('Invalid email or passphrase. Please try again.');
+      setStatus('error');
+    }
+  };
+
+  return (
+    <div className="w-full max-w-md">
+      <div className="rounded-sm border border-border bg-surface p-8">
+        {/* Logo */}
+        <div className="mb-6 flex items-center justify-center gap-1.5">
+          <span className="font-mono text-ui-lg font-semibold text-primary" aria-hidden="true">
+            &oplus;
+          </span>
+          <span className="font-mono text-ui-md font-semibold tracking-wide text-text-primary">
+            Enclave Mail
+          </span>
+        </div>
+
+        <h1 className="mb-6 text-center text-ui-md font-semibold text-text-primary">Sign In</h1>
+
+        <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-5">
+          {/* Email */}
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="login-email" className="text-ui-xs text-text-secondary">
+              Email address
+            </label>
+            <Input
+              id="login-email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+
+          {/* Passphrase */}
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="login-passphrase" className="text-ui-xs text-text-secondary">
+              Passphrase
+            </label>
+            <div className="relative">
+              <Input
+                id="login-passphrase"
+                type={showPassphrase ? 'text' : 'password'}
+                autoComplete="current-password"
+                placeholder="Enter your passphrase"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                className="pr-8"
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary transition-fast"
+                onClick={() => setShowPassphrase((v) => !v)}
+                aria-label={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
+                tabIndex={-1}
+              >
+                <HugeiconsIcon
+                  icon={(showPassphrase ? ViewOffIcon : ViewIcon) as IconSvgElement}
+                  size={16}
+                  strokeWidth={1.5}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Error */}
+          {status === 'error' && (
+            <div className="rounded-sm border border-danger/30 bg-danger/10 p-3">
+              <p className="text-ui-xs text-danger">{errorMessage}</p>
+            </div>
+          )}
+
+          {/* Submit */}
+          <Button type="submit" size="lg" disabled={!canSubmit} className="w-full">
+            {status === 'loading' ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                Signing in…
+              </span>
+            ) : (
+              'Sign In'
+            )}
+          </Button>
+
+          {/* Register link */}
+          <p className="text-center text-ui-xs text-text-secondary">
+            Don&apos;t have an account?{' '}
+            <a href="/onboarding" className="text-primary hover:underline">
+              Create an account
+            </a>
+          </p>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export { LoginForm };

@@ -286,7 +286,38 @@ const SidebarInner = ({ currentPath, isOpen, onClose }: SidebarInnerProps) => {
               type="button"
               className="flex h-8 w-full items-center gap-2 rounded-sm px-3 text-ui-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-danger"
               onClick={() => {
-                // Logout handler — will be wired in Wave 10
+                const token = (() => {
+                  try {
+                    return localStorage.getItem('enclave:sessionToken');
+                  } catch {
+                    return null;
+                  }
+                })();
+
+                // Clear session token first
+                try {
+                  localStorage.removeItem('enclave:sessionToken');
+                } catch {
+                  // Storage may be unavailable
+                }
+
+                // POST logout to server (best effort, fire and forget)
+                if (token) {
+                  const base =
+                    typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL
+                      ? (import.meta.env.PUBLIC_API_URL as string)
+                      : 'http://localhost:3001';
+
+                  fetch(`${base}/auth/logout`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                  }).catch(() => {
+                    // Intentionally ignored — fire and forget
+                  });
+                }
+
+                // Redirect to login
+                window.location.href = '/login';
               }}
             >
               <HugeiconsIcon
