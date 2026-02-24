@@ -232,39 +232,92 @@ For private-network deployments where the server is not publicly accessible, Enc
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) (v1.3.5+)
-- Docker + Docker Compose v2
+- [Bun](https://bun.sh) v1.3.5+
+- PostgreSQL 16 and Redis 7 — via Docker **or** installed locally (see options below)
 
-### Setup
+---
+
+### Option A — Docker Compose (recommended)
+
+Requires [Docker Engine](https://docs.docker.com/engine/install/) + [Docker Compose v2](https://docs.docker.com/compose/install/).
 
 ```bash
-# Install dependencies
+# 1. Install dependencies
 bun install
 
-# Start data services (PostgreSQL + Redis)
-docker compose -f docker-compose.dev.yml up -d
-
-# Copy and configure environment
+# 2. Copy environment file
 cp .env.example .env
 
-# Run all services in watch mode
-bun run dev
+# 3. Generate dev TLS cert and DKIM key
+bash scripts/gen-certs.sh
+bash scripts/gen-dkim.sh
+
+# 4. Start PostgreSQL + Redis (schema applied automatically on first start)
+docker compose -f docker-compose.dev.yml up -d
+
+# 5. Start the app (two terminals)
+bun run --cwd apps/server dev   # API + SMTP + IMAP  →  http://localhost:3001
+bun run --cwd apps/web dev      # Webmail            →  http://localhost:4321
 ```
+
+Open **http://localhost:4321/onboarding** to create your first account.
+
+> SMTP binds to 2025/2587 and IMAP to 1993 by default (no root required). These are set in `.env` and `apps/server/haraka/config/smtp.ini`.
+
+---
+
+### Option B — Manual setup (no Docker)
+
+Install PostgreSQL 16 and Redis 7 via your OS package manager, apply the schema, then run the app.
+
+**Ubuntu / Debian**
+```bash
+sudo apt install -y postgresql-16 redis-server
+sudo systemctl start postgresql redis-server
+sudo -u postgres createuser --superuser $USER
+createdb enclave
+psql enclave < packages/db/src/setup.sql
+```
+
+**macOS (Homebrew)**
+```bash
+brew install postgresql@16 redis
+brew services start postgresql@16 redis
+createdb enclave
+psql enclave < packages/db/src/setup.sql
+```
+
+**Arch Linux**
+```bash
+sudo pacman -S postgresql redis
+sudo -u postgres initdb -D /var/lib/postgres/data
+sudo systemctl start postgresql redis
+createdb enclave
+psql enclave < packages/db/src/setup.sql
+```
+
+Then:
+
+```bash
+cp .env.example .env          # edit DATABASE_URL if your Postgres user/port differs
+bash scripts/gen-certs.sh
+bash scripts/gen-dkim.sh
+bun install
+
+# Two terminals:
+bun run --cwd apps/server dev
+bun run --cwd apps/web dev
+```
+
+---
 
 ### Common commands
 
 ```bash
-# Type check all packages
-bun run typecheck
-
-# Run all tests
-bun test
-
-# Lint (Biome)
-bun run lint
-
-# Format
-bun run format
+bun run typecheck   # Type-check all packages
+bun test            # Run all tests
+bun run lint        # Lint with Biome
+bun run format      # Format with Biome
 ```
 
 ### Monorepo structure
