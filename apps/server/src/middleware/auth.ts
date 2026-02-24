@@ -6,6 +6,7 @@ import { validateSession } from '../auth/session-manager.js';
 
 export type AuthVariables = {
   userId: string;
+  isAdmin?: boolean;
 };
 
 /**
@@ -90,3 +91,38 @@ const defaultLookup: LookupKeyExportFn = async (userId) => {
 };
 
 export const requireKeyExport = createRequireKeyExportMiddleware(defaultLookup);
+
+// ---------------------------------------------------------------------------
+// Admin enforcement
+// ---------------------------------------------------------------------------
+
+export type LookupAdminFn = (userId: string) => Promise<{ isAdmin: boolean } | null>;
+
+export const createRequireAdminMiddleware = (lookupFn: LookupAdminFn) =>
+  createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
+    const userId = c.get('userId');
+    const user = await lookupFn(userId);
+
+    if (!user) {
+      return c.json({ error: 'UNAUTHORIZED' }, 401);
+    }
+
+    if (!user.isAdmin) {
+      return c.json(
+        {
+          error: 'ADMIN_REQUIRED',
+          message: 'This action requires administrator privileges',
+        },
+        403,
+      );
+    }
+
+    await next();
+  });
+
+const defaultAdminLookup: LookupAdminFn = async (userId) => {
+  const rows = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, userId));
+  return rows[0] ?? null;
+};
+
+export const requireAdmin = createRequireAdminMiddleware(defaultAdminLookup);
