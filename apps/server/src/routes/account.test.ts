@@ -16,6 +16,8 @@ const validBody = {
 };
 
 const noopConfirmKeyExport = async () => {};
+const registrationEnabled = async () => true;
+const registrationDisabled = async () => false;
 
 // ---------------------------------------------------------------------------
 // Account creation tests
@@ -26,6 +28,7 @@ describe('POST /account/create', () => {
     const router = createAccountRouter({
       createAccountFn: async () => ({ userId: 'user-123', sessionToken: 'session-abc' }),
       confirmKeyExportFn: noopConfirmKeyExport,
+      checkRegistrationFn: registrationEnabled,
     });
 
     const response = await router.request('/account/create', {
@@ -42,6 +45,7 @@ describe('POST /account/create', () => {
     const router = createAccountRouter({
       createAccountFn: async () => ({ userId: 'user-123', sessionToken: 'session-abc' }),
       confirmKeyExportFn: noopConfirmKeyExport,
+      checkRegistrationFn: registrationEnabled,
     });
 
     const response = await router.request('/account/create', {
@@ -63,6 +67,7 @@ describe('POST /account/create', () => {
         throw new AccountServiceError('EMAIL_TAKEN', 'Email already exists');
       },
       confirmKeyExportFn: noopConfirmKeyExport,
+      checkRegistrationFn: registrationEnabled,
     });
 
     const response = await router.request('/account/create', {
@@ -81,6 +86,7 @@ describe('POST /account/create', () => {
         throw new AccountServiceError('INVALID_KEY_SIZE', 'x25519_public must be exactly 32 bytes');
       },
       confirmKeyExportFn: noopConfirmKeyExport,
+      checkRegistrationFn: registrationEnabled,
     });
 
     const response = await router.request('/account/create', {
@@ -94,6 +100,40 @@ describe('POST /account/create', () => {
       error: 'INVALID_REQUEST',
       details: [{ message: 'x25519_public must be exactly 32 bytes' }],
     });
+  });
+
+  test('returns 403 when registration is disabled', async () => {
+    const router = createAccountRouter({
+      createAccountFn: async () => ({ userId: 'user-123', sessionToken: 'session-abc' }),
+      confirmKeyExportFn: noopConfirmKeyExport,
+      checkRegistrationFn: registrationDisabled,
+    });
+
+    const response = await router.request('/account/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(validBody),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'REGISTRATION_DISABLED' });
+  });
+
+  test('allows account creation when registration is enabled', async () => {
+    const router = createAccountRouter({
+      createAccountFn: async () => ({ userId: 'user-456', sessionToken: 'session-def' }),
+      confirmKeyExportFn: noopConfirmKeyExport,
+      checkRegistrationFn: registrationEnabled,
+    });
+
+    const response = await router.request('/account/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(validBody),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ userId: 'user-456', sessionToken: 'session-def' });
   });
 });
 
@@ -114,6 +154,7 @@ describe('POST /account/confirm-key-export', () => {
     const router = createAccountRouter({
       createAccountFn: async () => ({ userId: 'unused', sessionToken: 'unused' }),
       confirmKeyExportFn: confirmFn,
+      checkRegistrationFn: registrationEnabled,
     });
 
     app.route('/', router);
@@ -155,6 +196,7 @@ describe('POST /account/confirm-key-export', () => {
     const router = createAccountRouter({
       createAccountFn: async () => ({ userId: 'unused', sessionToken: 'unused' }),
       confirmKeyExportFn: async () => {},
+      checkRegistrationFn: registrationEnabled,
     });
 
     app.route('/', router);
