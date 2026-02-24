@@ -157,14 +157,13 @@ async function flushComposeQueue() {
 
   for (const item of items) {
     try {
-      const response = await fetch('/api/mail/send', {
+      // POST the pre-composed payload to the correct compose endpoint.
+      // Items are stored via use-encrypt-send when offline; fields mirror the
+      // compose API schema (encryptedBody, mimeBody, to, subject, etc.).
+      const response = await fetch('/api/compose/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          encryptedPayload: Array.from(item.encryptedPayload),
-          nonce: Array.from(item.nonce),
-          recipientPublicKey: item.recipientPublicKey,
-        }),
+        body: JSON.stringify(item.payload),
       });
 
       if (response.ok) {
