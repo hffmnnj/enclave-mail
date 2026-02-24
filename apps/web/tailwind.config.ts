@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import animate from 'tailwindcss-animate';
 
 const config: Config = {
   content: ['./src/**/*.{astro,html,js,jsx,md,mdx,ts,tsx}', '../../packages/ui/src/**/*.{ts,tsx}'],

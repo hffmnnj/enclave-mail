@@ -15,6 +15,18 @@ function registerServiceWorker(): void {
     return;
   }
 
+  // In development, the service worker's cache-first strategy serves stale JS
+  // bundles after every code change, breaking HMR and requiring hard-refresh
+  // on every reload. Unregister any existing worker and bail out.
+  if (import.meta.env.DEV) {
+    void navigator.serviceWorker.getRegistrations().then((regs) => {
+      for (const reg of regs) {
+        void reg.unregister();
+      }
+    });
+    return;
+  }
+
   window.addEventListener('load', () => {
     void (async () => {
       try {

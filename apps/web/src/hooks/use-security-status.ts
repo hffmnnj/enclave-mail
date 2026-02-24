@@ -17,9 +17,10 @@ const fetchServerHealth = async (): Promise<HealthResponse> => {
   const baseUrl =
     typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL
       ? (import.meta.env.PUBLIC_API_URL as string)
-      : 'http://localhost:3001';
+      : 'http://localhost:3001/api';
 
-  const res = await fetch(`${baseUrl}/api/health`, {
+  // baseUrl already includes /api (via PUBLIC_API_URL=http://localhost:3001/api)
+  const res = await fetch(`${baseUrl}/health`, {
     signal: AbortSignal.timeout(5_000),
   });
 

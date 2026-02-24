@@ -286,14 +286,13 @@ const handleLogout = () => {
 // ---------------------------------------------------------------------------
 
 const useMediaQuery = (query: string): boolean => {
-  const [matches, setMatches] = React.useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia(query).matches;
-  });
+  // Always initialise to false on the server so SSR and client first-render match.
+  // The real value is applied in useEffect (client only), after hydration completes.
+  const [matches, setMatches] = React.useState(false);
 
   React.useEffect(() => {
-    if (typeof window === 'undefined') return;
     const mql = window.matchMedia(query);
+    setMatches(mql.matches);
     const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
     mql.addEventListener('change', handler);
     return () => mql.removeEventListener('change', handler);

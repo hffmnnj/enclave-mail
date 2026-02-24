@@ -25,10 +25,10 @@ const currentPath = Astro.url.pathname;
     <title>{title} &mdash; Enclave Mail</title>
   </head>
   <body class="no-horizontal-scroll bg-background text-text-primary min-h-screen">
-    <MobileShell client:load currentPath={currentPath}>
+    <MobileShell client:only="react" currentPath={currentPath}>
       <slot />
     </MobileShell>
-    <SecurityStatusBar client:load />
+    <SecurityStatusBar client:only="react" />
 
     <script>
       import { registerServiceWorker } from '../lib/sw-register';
