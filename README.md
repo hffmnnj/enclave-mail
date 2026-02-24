@@ -15,12 +15,13 @@ Enclave Mail is a complete email server and webmail client you run on your own V
 ```mermaid
 graph TB
     subgraph Client["Browser / Mobile"]
-        WebUI["Webmail UI\n(Astro + React)"]
         Crypto["Client-side Crypto\n(@noble/*)"]
+        WebUI["Webmail UI\n(Astro + React)"]
     end
 
     subgraph Server["Self-hosted Server"]
         Caddy["Caddy\n(HTTPS Proxy)"]
+        WebServer["Web Server\n(Astro, :4321)"]
         API["Hono API\n(:3001)"]
         SMTP["Haraka SMTP\n(:25/:587)"]
         IMAP["IMAP Server\n(:993)"]
@@ -29,8 +30,8 @@ graph TB
     end
 
     WebUI -->|HTTPS| Caddy
+    Caddy -->|HTTP| WebServer
     Caddy -->|HTTP| API
-    Caddy -->|HTTP| WebUI
     API --> PG
     API --> Redis
     SMTP --> PG
