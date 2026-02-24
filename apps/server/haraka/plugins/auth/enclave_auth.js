@@ -26,7 +26,9 @@ exports.register = function register() {
   this.redis = new Redis(this.redisUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
+    retryStrategy: (times) => Math.min(100 * 2 ** times, 10_000),
   });
+  this.redis.on('error', () => undefined);
 };
 
 exports.shutdown = function shutdown() {

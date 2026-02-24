@@ -29,11 +29,14 @@ function mailboxChannel(mailboxId: string): string {
 
 function createPubSubConnection(): Redis {
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
-  return new Redis(redisUrl, {
+  const client = new Redis(redisUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
     lazyConnect: false,
+    retryStrategy: (times: number) => Math.min(100 * 2 ** times, 10_000),
   });
+  client.on('error', () => undefined); // suppress unhandled error events
+  return client;
 }
 
 function isRedisPubSubEnabled(): boolean {
