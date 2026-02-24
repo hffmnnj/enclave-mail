@@ -121,3 +121,10 @@ CREATE TABLE IF NOT EXISTS prekeys (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS prekeys_user_type_used_created_idx ON prekeys (user_id, key_type, is_used, created_at);
+
+-- system_config
+CREATE TABLE IF NOT EXISTS system_config (
+  key         TEXT PRIMARY KEY,
+  value       JSONB NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

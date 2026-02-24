@@ -10,8 +10,8 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { bytea } from '../types/bytea.js';
-import { mailboxes } from './mailboxes.js';
+import { bytea } from '../types/bytea.ts';
+import { mailboxes } from './mailboxes.ts';
 
 export const messageFlagEnum = pgEnum('message_flag', [
   'seen',

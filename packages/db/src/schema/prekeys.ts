@@ -1,7 +1,7 @@
 import { boolean, index, integer, pgEnum, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
 
-import { bytea } from '../types/bytea.js';
-import { users } from './users.js';
+import { bytea } from '../types/bytea.ts';
+import { users } from './users.ts';
 
 export const prekeyTypeEnum = pgEnum('prekey_type', ['signed', 'one_time']);
 
