@@ -25,8 +25,25 @@ const buildCertificatePath = (domain: string): string =>
 
 const createTimeoutError = (): Error => new Error('CERTBOT_TIMEOUT');
 
+// Minimal Bun runtime interface for cross-context type safety.
+// The web app's tsc follows ApiAppType imports into server code but lacks Bun types.
+interface BunProcess {
+  stdout: ReadableStream;
+  stderr: ReadableStream;
+  exitCode: number | null;
+  exited: Promise<number> & { finally: (cb: () => void) => Promise<number> };
+  kill: () => void;
+}
+
+interface BunRuntimeApi {
+  spawn: (cmd: string[], opts: { stdout: string; stderr: string }) => BunProcess;
+  file: (path: string) => { exists: () => Promise<boolean> };
+}
+
+const getBun = (): BunRuntimeApi => (globalThis as unknown as { Bun: BunRuntimeApi }).Bun;
+
 const defaultSpawnFn: NonNullable<TlsServiceDeps['spawnFn']> = async (cmd, opts) => {
-  const process = Bun.spawn(cmd, {
+  const process = getBun().spawn(cmd, {
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -53,7 +70,7 @@ const defaultSpawnFn: NonNullable<TlsServiceDeps['spawnFn']> = async (cmd, opts)
 };
 
 const defaultCertExistsFn: NonNullable<TlsServiceDeps['certExistsFn']> = async (domain) =>
-  Bun.file(buildCertificatePath(domain)).exists();
+  getBun().file(buildCertificatePath(domain)).exists();
 
 export const createTlsService = (deps: TlsServiceDeps = {}) => {
   const spawnFn = deps.spawnFn ?? defaultSpawnFn;

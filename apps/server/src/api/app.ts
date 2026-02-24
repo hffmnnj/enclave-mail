@@ -5,6 +5,7 @@ import { ZodError } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import { accountRouter } from '../routes/account.js';
 import { authRouter } from '../routes/auth.js';
+import { setupRouter } from '../routes/setup.js';
 import { composeRouter } from './routes/compose.js';
 import { keysRouter } from './routes/keys.js';
 import { mailboxRouter } from './routes/mailbox.js';
@@ -109,6 +110,14 @@ apiApp.route('/', settingsRouter);
 
 // --- Key management routes ---
 apiApp.route('/', keysRouter);
+
+// --- Setup routes ---
+// Public: GET /setup/status, GET /setup/domain, GET /setup/dns-records,
+//         GET /setup/tls-status, GET /setup/registration
+// Auth: GET /setup/admin-status (authMiddleware)
+// Admin or no-users: POST /setup/domain, POST /setup/tls-trigger
+// Admin only: PUT /setup/registration
+apiApp.route('/', setupRouter);
 
 // --- 404 handler ---
 apiApp.notFound((c) => {
