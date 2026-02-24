@@ -30,3 +30,4 @@ CREATE TABLE IF NOT EXISTS message_bodies (id UUID PRIMARY KEY DEFAULT gen_rando
 CREATE UNIQUE INDEX IF NOT EXISTS message_bodies_message_id_unique_idx ON message_bodies (message_id);
 CREATE TABLE IF NOT EXISTS prekeys (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, key_id INTEGER NOT NULL, public_key BYTEA NOT NULL, signature BYTEA, key_type prekey_type NOT NULL, is_used BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE INDEX IF NOT EXISTS prekeys_user_type_used_created_idx ON prekeys (user_id, key_type, is_used, created_at);
+CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());

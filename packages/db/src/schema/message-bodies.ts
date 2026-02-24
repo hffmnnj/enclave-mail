@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
-import { bytea } from '../types/bytea.js';
-import { messages } from './messages.js';
+import { bytea } from '../types/bytea.ts';
+import { messages } from './messages.ts';
 
 export const messageBodies = pgTable(
   'message_bodies',

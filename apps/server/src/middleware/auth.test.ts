@@ -4,9 +4,11 @@ import { Hono } from 'hono';
 const validateSessionMock = mock(
   async (_token: string): Promise<{ userId: string; expiresAt: Date } | null> => null,
 );
-const { createAuthMiddleware, createRequireKeyExportMiddleware } = await import('./auth.js');
+const { createAuthMiddleware, createRequireAdminMiddleware, createRequireKeyExportMiddleware } =
+  await import('./auth.js');
 
 type LookupKeyExportFn = (userId: string) => Promise<{ keyExportConfirmed: boolean } | null>;
+type LookupAdminFn = (userId: string) => Promise<{ isAdmin: boolean } | null>;
 
 // ---------------------------------------------------------------------------
 // Test app — a minimal Hono instance with the auth middleware applied
@@ -211,5 +213,55 @@ describe('requireKeyExport', () => {
 
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: 'UNAUTHORIZED' });
+  });
+});
+
+describe('requireAdmin', () => {
+  function createAdminApp(lookupFn: LookupAdminFn) {
+    const middleware = createRequireAdminMiddleware(lookupFn);
+    const app = new Hono<{ Variables: { userId: string } }>();
+
+    app.use('*', async (c, next) => {
+      c.set('userId', 'user-42');
+      await next();
+    });
+    app.use('*', middleware);
+    app.get('/admin', (c) => c.json({ data: 'admin-ok' }));
+
+    return app;
+  }
+
+  test('returns 401 when user is not found', async () => {
+    const lookupFn = mock<LookupAdminFn>(async () => null);
+    const app = createAdminApp(lookupFn);
+
+    const res = await app.request('/admin');
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'UNAUTHORIZED' });
+  });
+
+  test('returns 403 with ADMIN_REQUIRED when user is not admin', async () => {
+    const lookupFn = mock<LookupAdminFn>(async () => ({ isAdmin: false }));
+    const app = createAdminApp(lookupFn);
+
+    const res = await app.request('/admin');
+
+    expect(res.status).toBe(403);
+
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe('ADMIN_REQUIRED');
+    expect(body.message).toBe('This action requires administrator privileges');
+  });
+
+  test('calls next when user is admin', async () => {
+    const lookupFn = mock<LookupAdminFn>(async () => ({ isAdmin: true }));
+    const app = createAdminApp(lookupFn);
+
+    const res = await app.request('/admin');
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: 'admin-ok' });
+    expect(lookupFn).toHaveBeenCalledWith('user-42');
   });
 });

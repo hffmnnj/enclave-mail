@@ -10,6 +10,7 @@ type DbUser = {
   srpSalt: Buffer;
   srpVerifier: Buffer;
   keyExportConfirmed: boolean;
+  isAdmin: boolean;
 };
 
 type DbKeypair = {
@@ -42,6 +43,28 @@ const cloneStore = (source: InMemoryStore): InMemoryStore => ({
   mailboxes: source.mailboxes.map((mailbox) => ({ ...mailbox })),
 });
 
+const collectStrings = (value: unknown, seen: Set<object> = new Set()): string[] => {
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return [];
+  }
+
+  if (seen.has(value)) {
+    return [];
+  }
+
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectStrings(entry, seen));
+  }
+
+  return Object.values(value).flatMap((entry) => collectStrings(entry, seen));
+};
+
 describe('createAccountService', () => {
   let nextUserId = 1;
   let failOnKeypairInsert = false;
@@ -59,15 +82,8 @@ describe('createAccountService', () => {
       select: () => ({
         from: () => ({
           where: async (whereClause: unknown): Promise<Array<{ id: string }>> => {
-            const email =
-              typeof whereClause === 'object' &&
-              whereClause !== null &&
-              'value' in whereClause &&
-              typeof (whereClause as { value: unknown }).value === 'string'
-                ? (whereClause as { value: string }).value
-                : '';
-
-            const found = store.users.find((user) => user.email === email);
+            const whereStrings = collectStrings(whereClause);
+            const found = store.users.find((user) => whereStrings.includes(user.email));
             return found ? [{ id: found.id }] : [];
           },
         }),
@@ -78,6 +94,10 @@ describe('createAccountService', () => {
         const staged = cloneStore(store);
 
         const tx = {
+          select: () => ({
+            from: async (): Promise<Array<{ id: string }>> =>
+              staged.users.map((user) => ({ id: user.id })),
+          }),
           insert: (table: unknown) => ({
             values: (rows: unknown) => {
               if (
@@ -90,6 +110,7 @@ describe('createAccountService', () => {
                   srpSalt: Buffer;
                   srpVerifier: Buffer;
                   keyExportConfirmed: boolean;
+                  isAdmin: boolean;
                 };
 
                 const inserted: DbUser = {
@@ -98,6 +119,7 @@ describe('createAccountService', () => {
                   srpSalt: user.srpSalt,
                   srpVerifier: user.srpVerifier,
                   keyExportConfirmed: user.keyExportConfirmed,
+                  isAdmin: user.isAdmin,
                 };
 
                 nextUserId += 1;
@@ -178,6 +200,7 @@ describe('createAccountService', () => {
       srpSalt: Buffer.from('aa', 'hex'),
       srpVerifier: Buffer.from('bb', 'hex'),
       keyExportConfirmed: false,
+      isAdmin: false,
     });
 
     await expect(
@@ -213,5 +236,50 @@ describe('createAccountService', () => {
     expect(store.keypairs).toHaveLength(0);
     expect(store.mailboxes).toHaveLength(0);
     expect(createSessionMock).toHaveBeenCalledTimes(0);
+  });
+
+  test('auto-promotes the first registered user to admin', async () => {
+    const service = createService();
+
+    await service({
+      email: 'first@enclave.test',
+      salt: '0a0b0c0d',
+      verifier: '01020304',
+      x25519Public: '11'.repeat(32),
+      ed25519Public: '22'.repeat(32),
+      encryptedX25519Private: '33'.repeat(96),
+      encryptedEd25519Private: '44'.repeat(96),
+    });
+
+    expect(store.users).toHaveLength(1);
+    expect(store.users[0]?.isAdmin).toBe(true);
+  });
+
+  test('creates subsequent users with explicit non-admin role', async () => {
+    const service = createService();
+
+    await service({
+      email: 'first@enclave.test',
+      salt: '0a0b0c0d',
+      verifier: '01020304',
+      x25519Public: '11'.repeat(32),
+      ed25519Public: '22'.repeat(32),
+      encryptedX25519Private: '33'.repeat(96),
+      encryptedEd25519Private: '44'.repeat(96),
+    });
+
+    await service({
+      email: 'second@enclave.test',
+      salt: '0a0b0c0d',
+      verifier: '01020304',
+      x25519Public: '55'.repeat(32),
+      ed25519Public: '66'.repeat(32),
+      encryptedX25519Private: '77'.repeat(96),
+      encryptedEd25519Private: '88'.repeat(96),
+    });
+
+    expect(store.users).toHaveLength(2);
+    expect(store.users[0]?.isAdmin).toBe(true);
+    expect(store.users[1]?.isAdmin).toBe(false);
   });
 });

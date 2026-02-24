@@ -11,6 +11,7 @@ import {
   Menu01Icon,
   PencilEdit01Icon,
   Settings01Icon,
+  Settings02Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import type { IconSvgElement } from '@hugeicons/react';
@@ -22,6 +23,60 @@ import { getQueryClient } from '../lib/query-client.js';
 import { FolderManager } from './mail/FolderManager.js';
 
 import type { Mailbox, MailboxType } from '../hooks/use-mailboxes.js';
+
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+
+const getApiBaseUrl = (): string => {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL) {
+    return import.meta.env.PUBLIC_API_URL as string;
+  }
+  return 'http://localhost:3001';
+};
+
+const getAuthToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem('enclave:sessionToken');
+  } catch {
+    return null;
+  }
+};
+
+// ---------------------------------------------------------------------------
+// useIsAdmin — checks admin status via API
+// ---------------------------------------------------------------------------
+
+const useIsAdmin = (): boolean => {
+  const [isAdmin, setIsAdmin] = React.useState(false);
+  const fetchedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    const check = async () => {
+      const token = getAuthToken();
+      if (!token) return;
+
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/setup/admin-status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { isAdmin: boolean };
+        setIsAdmin(data.isAdmin === true);
+      } catch {
+        // Silently fail — non-admin is the safe default
+      }
+    };
+
+    void check();
+  }, []);
+
+  return isAdmin;
+};
 
 // ---------------------------------------------------------------------------
 // Icon mapping for mailbox types
@@ -315,6 +370,7 @@ const SidebarInner = ({ currentPath, isOpen, onClose }: SidebarInnerProps) => {
   const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
   const isDesktop = useMediaQuery('(min-width: 1024px)');
   const isMobile = !isTablet && !isDesktop;
+  const isAdmin = useIsAdmin();
 
   // Tablet rail: collapsed by default, expandable
   const [tabletExpanded, setTabletExpanded] = React.useState(false);
@@ -406,6 +462,14 @@ const SidebarInner = ({ currentPath, isOpen, onClose }: SidebarInnerProps) => {
                   active={isActive(currentPath, item.path)}
                 />
               ))}
+              {isAdmin && (
+                <NavLink
+                  path="/admin/settings"
+                  icon={Settings02Icon as IconSvgElement}
+                  label="Admin Settings"
+                  active={isActive(currentPath, '/admin/settings')}
+                />
+              )}
               <button
                 type="button"
                 className="flex h-10 w-full items-center gap-2 rounded-sm px-3 text-ui-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-danger"
@@ -497,6 +561,15 @@ const SidebarInner = ({ currentPath, isOpen, onClose }: SidebarInnerProps) => {
                 collapsed={collapsed}
               />
             ))}
+            {isAdmin && (
+              <NavLink
+                path="/admin/settings"
+                icon={Settings02Icon as IconSvgElement}
+                label="Admin Settings"
+                active={isActive(currentPath, '/admin/settings')}
+                collapsed={collapsed}
+              />
+            )}
             <button
               type="button"
               className={cn(
@@ -557,6 +630,14 @@ const SidebarInner = ({ currentPath, isOpen, onClose }: SidebarInnerProps) => {
               active={isActive(currentPath, item.path)}
             />
           ))}
+          {isAdmin && (
+            <NavLink
+              path="/admin/settings"
+              icon={Settings02Icon as IconSvgElement}
+              label="Admin Settings"
+              active={isActive(currentPath, '/admin/settings')}
+            />
+          )}
           <button
             type="button"
             className="flex h-8 w-full items-center gap-2 rounded-sm px-3 text-ui-sm text-text-secondary transition-fast hover:bg-surface-raised hover:text-danger"

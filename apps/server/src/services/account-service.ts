@@ -45,12 +45,17 @@ interface SelectUsersQuery {
   };
 }
 
+interface SelectUsersFromQuery {
+  from: (table: unknown) => Promise<Array<{ id: string }>>;
+}
+
 interface InsertUsersQuery {
   values: (row: {
     email: string;
     srpSalt: Buffer;
     srpVerifier: Buffer;
     keyExportConfirmed: boolean;
+    isAdmin: boolean;
   }) => {
     returning: (selection: { id: unknown }) => Promise<Array<{ id: string }>>;
   };
@@ -62,6 +67,7 @@ interface InsertBatchQuery {
 
 interface AccountTransactionClient {
   insert: (table: unknown) => InsertUsersQuery | InsertBatchQuery;
+  select: (selection: { id: unknown }) => SelectUsersQuery;
 }
 
 interface AccountDbClient {
@@ -140,6 +146,11 @@ export const createAccountService = (deps: AccountServiceDeps) => {
 
     try {
       userId = await deps.dbClient.transaction(async (tx) => {
+        const existingUsers = await (
+          tx.select({ id: users.id }) as unknown as SelectUsersFromQuery
+        ).from(users);
+        const isFirstUser = existingUsers.length === 0;
+
         const userInsert = tx.insert(users) as InsertUsersQuery;
 
         const createdUsers = await userInsert
@@ -148,6 +159,7 @@ export const createAccountService = (deps: AccountServiceDeps) => {
             srpSalt: salt,
             srpVerifier: verifier,
             keyExportConfirmed: false,
+            isAdmin: isFirstUser,
           })
           .returning({ id: users.id });
 

@@ -1,6 +1,6 @@
 import { boolean, index, pgEnum, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { bytea } from '../types/bytea.js';
-import { users } from './users.js';
+import { bytea } from '../types/bytea.ts';
+import { users } from './users.ts';
 
 export const keypairTypeEnum = pgEnum('keypair_type', ['x25519', 'ed25519']);
 

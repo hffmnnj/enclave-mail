@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import type { AuthVariables } from '../middleware/auth.js';
 import { AccountServiceError, createAccount } from '../services/account-service.js';
+import { configService } from '../services/config-service.js';
 
 const hexRegex = /^[0-9a-f]+$/i;
 
@@ -27,12 +28,18 @@ const accountCreateSchema = z.object({
 interface AccountRouteDeps {
   createAccountFn: typeof createAccount;
   confirmKeyExportFn: (userId: string) => Promise<void>;
+  checkRegistrationFn: () => Promise<boolean>;
 }
 
 export const createAccountRouter = (deps: AccountRouteDeps): Hono<{ Variables: AuthVariables }> => {
   const router = new Hono<{ Variables: AuthVariables }>();
 
   router.post('/account/create', async (c) => {
+    const registrationEnabled = await deps.checkRegistrationFn();
+    if (!registrationEnabled) {
+      return c.json({ error: 'REGISTRATION_DISABLED' }, 403);
+    }
+
     let body: unknown;
 
     try {
@@ -101,4 +108,9 @@ const confirmKeyExport = async (userId: string): Promise<void> => {
 export const accountRouter = createAccountRouter({
   createAccountFn: createAccount,
   confirmKeyExportFn: confirmKeyExport,
+  checkRegistrationFn: async () => {
+    const value = await configService.getConfig('registration_enabled');
+    if (value === null) return true;
+    return Boolean(value);
+  },
 });

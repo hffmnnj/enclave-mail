@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { boolean, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { bytea } from '../types/bytea.js';
+import { bytea } from '../types/bytea.ts';
 
 /**
  * Shape of the `preferences` jsonb column.
@@ -22,6 +22,7 @@ export const users = pgTable('users', {
   srpSalt: bytea('srp_salt').notNull(),
   srpVerifier: bytea('srp_verifier').notNull(),
   keyExportConfirmed: boolean('key_export_confirmed').notNull().default(false),
+  isAdmin: boolean('is_admin').notNull().default(false),
   // NOTE: Migration required — run `bun run db:generate` then `bun run db:migrate`
   // to add this column to existing databases.
   preferences: jsonb('preferences')

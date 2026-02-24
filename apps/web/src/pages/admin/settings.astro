@@ -1,0 +1,11 @@
+---
+import AppLayout from '../../layouts/AppLayout.astro';
+import { AdminSettings } from '../../components/admin/AdminSettings';
+---
+
+<AppLayout title="Admin Settings">
+  <div class="flex-1 p-6 max-w-2xl mx-auto space-y-6">
+    <h1 class="text-ui-lg font-semibold text-text-primary">Admin Settings</h1>
+    <AdminSettings client:load />
+  </div>
+</AppLayout>
