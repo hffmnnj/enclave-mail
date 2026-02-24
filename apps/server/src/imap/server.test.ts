@@ -130,17 +130,29 @@ describe('createImapSessionProcessor', () => {
 
 describe('startIMAPServer', () => {
   test('skips startup when TLS config is missing', () => {
-    const logger = {
-      info: mock(() => undefined),
-      warn: mock(() => undefined),
-      error: mock(() => undefined),
-    };
+    // Isolate from ambient TLS env vars (e.g. set in .env for dev).
+    // Empty-string override is falsy and correctly triggers the missing-TLS path.
+    const savedCert = process.env.TLS_CERT_PATH;
+    const savedKey = process.env.TLS_KEY_PATH;
+    process.env.TLS_CERT_PATH = '';
+    process.env.TLS_KEY_PATH = '';
 
-    const handle = startIMAPServer({ logger });
+    try {
+      const logger = {
+        info: mock(() => undefined),
+        warn: mock(() => undefined),
+        error: mock(() => undefined),
+      };
 
-    expect(handle.started).toBe(false);
-    expect(handle.reason).toBe('missing_tls_config');
-    expect(logger.warn).toHaveBeenCalledTimes(1);
+      const handle = startIMAPServer({ logger });
+
+      expect(handle.started).toBe(false);
+      expect(handle.reason).toBe('missing_tls_config');
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    } finally {
+      process.env.TLS_CERT_PATH = savedCert ?? '';
+      process.env.TLS_KEY_PATH = savedKey ?? '';
+    }
   });
 
   test('handles open/data flow and writes responses', async () => {

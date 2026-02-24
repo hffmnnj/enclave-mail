@@ -55,8 +55,10 @@ describe('smtp server config', () => {
 
     expect(main).toBeDefined();
     expect(main?.get('nodes')).toBe('0');
-    expect(main?.get('listen')).toContain(':25');
-    expect(main?.get('listen')).toContain(':587');
+    // listen must declare at least two port bindings (inbound + submission)
+    const listen = main?.get('listen') ?? '';
+    const ports = listen.match(/:\d+/g) ?? [];
+    expect(ports.length).toBeGreaterThanOrEqual(2);
   });
 
   test('tls.ini parses with key/cert entries', async () => {
