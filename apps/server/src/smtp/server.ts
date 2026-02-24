@@ -14,6 +14,9 @@ interface StartSMTPServerOptions extends SMTPServerConfig {
 const DEFAULT_TLS_CERT_PATH = '/etc/caddy/certs/tls.crt';
 const DEFAULT_TLS_KEY_PATH = '/etc/caddy/certs/tls.key';
 const DEFAULT_REDIS_URL = 'redis://localhost:6379';
+// Production defaults — overridden by SMTP_PORT_INBOUND / SMTP_PORT_SUBMISSION in dev
+const DEFAULT_SMTP_PORT_INBOUND = 25;
+const DEFAULT_SMTP_PORT_SUBMISSION = 587;
 
 function getDefaultConfig(cwd: string): Required<SMTPServerConfig> {
   return {
@@ -29,6 +32,7 @@ function getDefaultConfig(cwd: string): Required<SMTPServerConfig> {
 function writeHarakaRuntimeConfig(config: Required<SMTPServerConfig>): void {
   const hostListPath = join(config.harakaConfigPath, 'config', 'host_list');
   const tlsIniPath = join(config.harakaConfigPath, 'config', 'tls.ini');
+  const smtpIniPath = join(config.harakaConfigPath, 'config', 'smtp.ini');
 
   mkdirSync(dirname(hostListPath), { recursive: true });
 
@@ -38,6 +42,25 @@ function writeHarakaRuntimeConfig(config: Required<SMTPServerConfig>): void {
     `[main]\nkey=${config.tlsKeyPath}\ncert=${config.tlsCertPath}\n`,
     'utf8',
   );
+
+  // Overwrite listen ports so Haraka binds to the env-configured ports at
+  // runtime. Defaults to 25/587 for production; dev uses 2025/2587 (no root).
+  const portInbound = Number(process.env.SMTP_PORT_INBOUND) || DEFAULT_SMTP_PORT_INBOUND;
+  const portSubmission = Number(process.env.SMTP_PORT_SUBMISSION) || DEFAULT_SMTP_PORT_SUBMISSION;
+
+  // Read current smtp.ini and replace only the listen line so other settings
+  // (nodes, timeouts, etc.) are preserved.
+  try {
+    const { readFileSync } = require('node:fs');
+    const current = readFileSync(smtpIniPath, 'utf8') as string;
+    const updated = current.replace(
+      /^listen=.*/m,
+      `listen=[::0]:${portInbound},[::0]:${portSubmission}`,
+    );
+    writeFileSync(smtpIniPath, updated, 'utf8');
+  } catch {
+    // smtp.ini not found — skip (Haraka will use its own defaults)
+  }
 }
 
 function pipeSubprocessStream(
