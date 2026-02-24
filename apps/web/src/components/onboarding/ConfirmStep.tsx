@@ -53,7 +53,7 @@ interface ConfirmStepProps {
   email: string;
   passphrase: string;
   registrationBundle: RegistrationBundle;
-  onComplete: () => void;
+  onComplete: (sessionToken: string) => void;
 }
 
 const ConfirmStep = ({ email, passphrase, registrationBundle, onComplete }: ConfirmStepProps) => {
@@ -150,7 +150,7 @@ const ConfirmStep = ({ email, passphrase, registrationBundle, onComplete }: Conf
         // Storage may be unavailable — proceed anyway
       }
 
-      onComplete();
+      onComplete(sessionToken);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'Account creation failed. Please try again.';
