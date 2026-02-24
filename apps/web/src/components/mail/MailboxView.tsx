@@ -2,11 +2,15 @@
  * MailboxView
  *
  * Thin routing adapter that maps a mailbox type (e.g. "inbox", "sent") to its
- * UUID and delegates to InboxView. Mounted by the Astro catch-all mail route.
+ * UUID and delegates to InboxView. Mounted as a React island by the Astro
+ * catch-all mail route — wraps with QueryClientProvider for island isolation.
  */
-import type * as React from 'react';
+import * as React from 'react';
+
+import { QueryClientProvider } from '@tanstack/react-query';
 
 import { useMailboxes } from '../../hooks/use-mailboxes.js';
+import { getQueryClient } from '../../lib/query-client.js';
 import { InboxView } from './InboxView.js';
 
 interface MailboxViewProps {
@@ -14,6 +18,7 @@ interface MailboxViewProps {
   mailboxType: string;
 }
 
+// Inner component — requires QueryClientProvider ancestor
 const MailboxViewInner = ({ mailboxType }: MailboxViewProps): React.ReactElement => {
   const { data: mailboxes, isLoading, isError } = useMailboxes();
 
@@ -48,8 +53,14 @@ const MailboxViewInner = ({ mailboxType }: MailboxViewProps): React.ReactElement
   return <InboxView mailboxId={mailbox.id} />;
 };
 
+// Public component — wraps with QueryClientProvider for React island isolation
 const MailboxView = ({ mailboxType }: MailboxViewProps): React.ReactElement => {
-  return <MailboxViewInner mailboxType={mailboxType} />;
+  const [queryClient] = React.useState(() => getQueryClient());
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MailboxViewInner mailboxType={mailboxType} />
+    </QueryClientProvider>
+  );
 };
 
 export { MailboxView };

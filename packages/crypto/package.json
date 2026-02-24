@@ -1,6 +1,6 @@
 {
   "name": "@enclave/crypto",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Cryptographic primitives: X25519, Ed25519, Argon2id, SRP, Double Ratchet",
   "main": "./src/index.ts",

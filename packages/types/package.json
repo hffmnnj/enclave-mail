@@ -1,6 +1,6 @@
 {
   "name": "@enclave/types",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Shared TypeScript types and interfaces",
   "main": "./src/index.ts",

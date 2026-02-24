@@ -42,7 +42,7 @@ function createAppWithoutAuth(deps: SettingsRouteDeps) {
 
 const defaultServerInfo: ServerInfo = {
   domain: 'mail.enclave.test',
-  version: '1.0.0',
+  version: '0.1.0',
   dkimEnabled: true,
   tlsEnabled: false,
 };
@@ -262,7 +262,7 @@ describe('GET /settings/server', () => {
     const deps = baseDeps();
     deps.getServerInfo = () => ({
       domain: 'custom.domain.com',
-      version: '1.0.0',
+      version: '0.1.0',
       dkimEnabled: false,
       tlsEnabled: true,
     });

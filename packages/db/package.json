@@ -1,6 +1,6 @@
 {
   "name": "@enclave/db",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Drizzle ORM schema, migrations, and database client",
   "main": "./src/index.ts",

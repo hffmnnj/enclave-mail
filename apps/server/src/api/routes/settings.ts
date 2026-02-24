@@ -209,7 +209,7 @@ const defaultUpdatePreferences = async (
 
 const defaultGetServerInfo = (): ServerInfo => ({
   domain: process.env.SMTP_DOMAIN ?? 'localhost',
-  version: '1.0.0',
+  version: '0.1.0',
   dkimEnabled: Boolean(process.env.DKIM_PRIVATE_KEY_PATH),
   tlsEnabled: Boolean(process.env.TLS_CERT_PATH),
 });
