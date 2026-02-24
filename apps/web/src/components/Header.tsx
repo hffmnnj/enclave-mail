@@ -117,9 +117,15 @@ const Header = ({ onMenuOpen, mailboxId }: HeaderProps) => {
 
         {/* Compose button — icon-only on mobile */}
         <Button variant="default" size="sm" className="max-md:h-10 max-md:w-10 max-md:p-0" asChild>
-          <a href="/mail/compose" className="gap-1.5 max-md:gap-0 max-md:justify-center">
+          <a
+            href="/mail/compose"
+            className="gap-1.5 max-md:gap-0 max-md:justify-center"
+            aria-label="Compose new message"
+          >
             <HugeiconsIcon icon={Add01Icon as IconSvgElement} size={14} strokeWidth={2} />
-            <span className="max-md:hidden">Compose</span>
+            <span className="max-md:hidden" aria-hidden="true">
+              Compose
+            </span>
           </a>
         </Button>
 

@@ -2,11 +2,16 @@
   "name": "Enclave Mail",
   "short_name": "Enclave",
   "description": "Private, encrypted email",
+  "id": "/mail/inbox",
   "start_url": "/mail/inbox",
+  "scope": "/",
   "display": "standalone",
   "orientation": "any",
+  "lang": "en",
+  "dir": "ltr",
   "theme_color": "#0F1117",
   "background_color": "#0F1117",
+  "categories": ["productivity", "utilities"],
   "icons": [
     {
       "src": "/icons/icon-192.png",

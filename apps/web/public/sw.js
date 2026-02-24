@@ -6,7 +6,7 @@ const SHELL_CACHE = 'enclave-shell-v1';
 const API_CACHE = 'enclave-api-v1';
 
 // App shell resources to pre-cache on install
-const SHELL_URLS = ['/', '/mail/inbox'];
+const SHELL_URLS = ['/', '/mail/inbox', '/offline'];
 
 // ---------------------------------------------------------------------------
 // Install — pre-cache app shell
@@ -90,8 +90,11 @@ async function cacheFirst(request, cacheName) {
     }
     return response;
   } catch (_err) {
-    // Offline and not cached — return a basic offline fallback for navigations
+    // Offline and not cached — serve the dedicated offline page for navigations
     if (request.mode === 'navigate') {
+      const offlinePage = await caches.match('/offline');
+      if (offlinePage) return offlinePage;
+      // Last resort: try the cached root
       const fallback = await caches.match('/');
       if (fallback) return fallback;
     }
