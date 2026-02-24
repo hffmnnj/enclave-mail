@@ -1,0 +1,89 @@
+# =============================================================================
+# Enclave Mail — Caddyfile
+# Caddy 2 reverse proxy with automatic HTTPS via Let's Encrypt
+#
+# Sections:
+#   1. Global options  — email for ACME, optional staging CA
+#   2. Virtual host    — HTTPS site block for {$DOMAIN}
+#      a. Routing      — /api/* → Hono server:3001, all else → Astro web:4321
+#      b. Security     — HSTS, X-Frame-Options, CSP, and other hardening headers
+#      c. Compression  — zstd + gzip encoding
+#      d. Logging      — JSON access log with rotation
+#
+# Mail ports (25, 587, 993) are NOT proxied here.
+# They are TCP protocols (SMTP/IMAP) and are exposed directly from the
+# 'server' container in docker-compose.yml. Caddy only handles HTTP/HTTPS.
+#
+# Environment variables (set in docker-compose.yml or .env):
+#   DOMAIN       — public hostname, e.g. mail.example.com  (required)
+#   CADDY_EMAIL  — ACME account email for Let's Encrypt    (default: admin@example.com)
+# =============================================================================
+
+# ── 1. Global Options ────────────────────────────────────────────────────────
+{
+    # ACME account email — used by Let's Encrypt for expiry notices
+    email {$CADDY_EMAIL:admin@example.com}
+
+    # Uncomment to use Let's Encrypt staging CA during initial setup/testing.
+    # Staging certs are not trusted by browsers but have much higher rate limits.
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# ── 2. Virtual Host ──────────────────────────────────────────────────────────
+# {$DOMAIN} is resolved from the DOMAIN environment variable at runtime.
+# Caddy automatically provisions and renews a TLS certificate via Let's Encrypt
+# when a real public domain is used (ACME HTTP-01 or TLS-ALPN-01 challenge).
+{$DOMAIN} {
+
+    # ── a. Routing ───────────────────────────────────────────────────────────
+
+    # API routes → Hono server (apps/server, port 3001)
+    # Matches /api and any path beneath it
+    handle /api/* {
+        reverse_proxy server:3001
+    }
+
+    # All other routes → Astro SSR webmail (apps/web, port 4321)
+    # Catch-all handle block; evaluated after the /api/* block above
+    handle {
+        reverse_proxy web:4321
+    }
+
+    # ── b. Security Headers ──────────────────────────────────────────────────
+    header {
+        # HSTS — instruct browsers to use HTTPS for 1 year, including subdomains.
+        # Only enable once you are confident HTTPS is stable on this domain.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+        # Prevent the page from being embedded in an iframe (clickjacking defence)
+        X-Frame-Options DENY
+
+        # Prevent browsers from MIME-sniffing the content type
+        X-Content-Type-Options nosniff
+
+        # Send only the origin (no path/query) as the Referer header to third parties
+        Referrer-Policy strict-origin-when-cross-origin
+
+        # Content Security Policy
+        # 'unsafe-inline' is required for script-src because Astro injects inline
+        # hydration scripts for React islands. Tighten this if you move to a
+        # nonce-based CSP in a future iteration.
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+
+        # Remove the Server header to avoid leaking Caddy version information
+        -Server
+    }
+
+    # ── c. Compression ───────────────────────────────────────────────────────
+    # Prefer zstd (better ratio, lower CPU) then fall back to gzip for older clients
+    encode zstd gzip
+
+    # ── d. Logging ───────────────────────────────────────────────────────────
+    log {
+        output file /data/access.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+        format json
+    }
+}

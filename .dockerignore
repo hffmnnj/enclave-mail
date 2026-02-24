@@ -1,0 +1,46 @@
+# Dependencies (reinstalled in container)
+node_modules/
+**/node_modules/
+
+# Build outputs (rebuilt in container)
+dist/
+**/dist/
+.astro/
+
+# Turborepo cache
+.turbo/
+
+# Bun cache
+.bun/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment (injected at runtime)
+.env
+.env.*
+!.env.example
+
+# GoopSpec (development workflow)
+.goopspec/
+
+# Docker (avoid recursive context)
+docker-compose*.yml
+
+# Tests and dev tooling
+**/*.test.ts
+**/*.spec.ts
+**/coverage/
+biome.json
+
+# Documentation
+*.md
+!README.md
+LICENSE

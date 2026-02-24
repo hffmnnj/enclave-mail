@@ -1,0 +1,21 @@
+---
+import AppLayout from '../../layouts/AppLayout.astro';
+import { MailboxView } from '../../components/mail/MailboxView';
+
+const { path } = Astro.params;
+const mailbox = path ?? 'inbox';
+
+const mailboxTitles: Record<string, string> = {
+  inbox: 'Inbox',
+  sent: 'Sent',
+  drafts: 'Drafts',
+  trash: 'Trash',
+  archive: 'Archive',
+};
+
+const title = mailboxTitles[mailbox] ?? mailbox;
+---
+
+<AppLayout title={title}>
+  <MailboxView client:load mailboxType={mailbox} />
+</AppLayout>

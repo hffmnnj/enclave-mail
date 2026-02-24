@@ -1,0 +1,96 @@
+# =============================================================================
+# Enclave Mail — Tailscale deployment variant
+# Use this instead of Caddyfile when running on a Tailscale network.
+# Caddy will obtain a certificate from Tailscale's built-in CA (MagicDNS).
+#
+# Sections:
+#   1. Global options  — Tailscale ACME CA (replaces Let's Encrypt)
+#   2. Virtual host    — HTTPS site block for {$TAILSCALE_DOMAIN}
+#      a. Routing      — /api/* → Hono server:3001, all else → Astro web:4321
+#      b. Security     — HSTS, X-Frame-Options, CSP, and other hardening headers
+#      c. Compression  — zstd + gzip encoding
+#      d. Logging      — JSON access log with rotation
+#
+# IMPORTANT: Mail ports (25, 587, 993) still need to be accessible.
+# For Enclave-to-Enclave only mode: they're accessible on the Tailscale network.
+# For external email mode: you need a public IP for port 25 (MX record must
+# point to your VPS public IP, not the Tailscale IP).
+#
+# Prerequisites:
+#   - Tailscale installed and running on the VPS
+#   - MagicDNS enabled in the Tailscale admin console
+#   - HTTPS enabled in the Tailscale admin console (for TLS cert provisioning)
+#
+# Environment variables (set in docker-compose.yml or .env):
+#   TAILSCALE_DOMAIN — Tailscale MagicDNS FQDN, e.g. enclave-mail.tailnet-name.ts.net
+# =============================================================================
+
+# ── 1. Global Options ────────────────────────────────────────────────────────
+{
+    # Use Tailscale's ACME CA for automatic HTTPS on MagicDNS hostnames.
+    # Tailscale acts as its own certificate authority — no Let's Encrypt needed.
+    # Certificates are automatically provisioned and renewed by Caddy.
+    acme_ca https://api.tailscale.com/machine/acme
+
+    # ACME EAB (External Account Binding) is not required for Tailscale CA.
+    # No email address is needed — Tailscale identifies the machine via its key.
+}
+
+# ── 2. Virtual Host ──────────────────────────────────────────────────────────
+# {$TAILSCALE_DOMAIN} is resolved from the TAILSCALE_DOMAIN environment variable.
+# Caddy will only serve this host on the Tailscale network interface.
+# Clients not connected to your Tailscale network cannot reach this host.
+{$TAILSCALE_DOMAIN} {
+
+    # ── a. Routing ───────────────────────────────────────────────────────────
+
+    # API routes → Hono server (apps/server, port 3001)
+    # Matches /api and any path beneath it
+    handle /api/* {
+        reverse_proxy server:3001
+    }
+
+    # All other routes → Astro SSR webmail (apps/web, port 4321)
+    # Catch-all handle block; evaluated after the /api/* block above
+    handle {
+        reverse_proxy web:4321
+    }
+
+    # ── b. Security Headers ──────────────────────────────────────────────────
+    header {
+        # HSTS — instruct browsers to use HTTPS for 1 year, including subdomains.
+        # Safe to enable: Tailscale always provides HTTPS on MagicDNS hostnames.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+        # Prevent the page from being embedded in an iframe (clickjacking defence)
+        X-Frame-Options DENY
+
+        # Prevent browsers from MIME-sniffing the content type
+        X-Content-Type-Options nosniff
+
+        # Send only the origin (no path/query) as the Referer header to third parties
+        Referrer-Policy strict-origin-when-cross-origin
+
+        # Content Security Policy
+        # 'unsafe-inline' is required for script-src because Astro injects inline
+        # hydration scripts for React islands. Tighten this if you move to a
+        # nonce-based CSP in a future iteration.
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+
+        # Remove the Server header to avoid leaking Caddy version information
+        -Server
+    }
+
+    # ── c. Compression ───────────────────────────────────────────────────────
+    # Prefer zstd (better ratio, lower CPU) then fall back to gzip for older clients
+    encode zstd gzip
+
+    # ── d. Logging ───────────────────────────────────────────────────────────
+    log {
+        output file /data/access-tailscale.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+        format json
+    }
+}

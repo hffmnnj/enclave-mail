@@ -1,0 +1,94 @@
+/* Font loading — Inter (body) + JetBrains Mono (monospace) */
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&display=swap");
+
+@import "./tokens.css";
+@import "./responsive.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: hsl(var(--color-text-primary));
+    background-color: hsl(var(--color-background));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    min-height: 100vh;
+  }
+
+  .font-mono,
+  code,
+  pre,
+  kbd {
+    font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+  }
+
+  /* Teal primary focus ring with 2px offset */
+  *:focus-visible {
+    outline: 2px solid hsl(var(--color-primary));
+    outline-offset: 2px;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background-color: hsl(var(--color-primary) / 0.25);
+    color: hsl(var(--color-text-primary));
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--color-background));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--color-border));
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--color-text-secondary));
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--color-border)) hsl(var(--color-background));
+  }
+}
+
+@layer utilities {
+  .truncate-email {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+  }
+
+  .transition-fast {
+    transition-duration: 100ms;
+    transition-timing-function: ease;
+  }
+
+  .transition-default {
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+  }
+
+  .text-mono {
+    font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+    letter-spacing: 0.02em;
+  }
+}

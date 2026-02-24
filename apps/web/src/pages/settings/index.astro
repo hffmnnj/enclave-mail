@@ -1,0 +1,13 @@
+---
+import AppLayout from '../../layouts/AppLayout.astro';
+import { AccountSettings } from '../../components/settings/AccountSettings';
+import { AppearanceSettings } from '../../components/settings/AppearanceSettings';
+---
+
+<AppLayout title="Settings">
+  <div class="flex-1 p-6 max-w-2xl mx-auto space-y-6">
+    <h1 class="text-ui-lg font-semibold text-text-primary">Settings</h1>
+    <AccountSettings client:load />
+    <AppearanceSettings client:load />
+  </div>
+</AppLayout>

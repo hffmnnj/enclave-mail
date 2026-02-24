@@ -1,0 +1,22 @@
+---
+import AppLayout from '../../layouts/AppLayout.astro';
+import { ComposeView } from '../../components/mail/ComposeView';
+
+// Extract optional replyTo params from URL search params
+const replyToMessageId = Astro.url.searchParams.get('replyTo') ?? undefined;
+const replyToSubject = Astro.url.searchParams.get('subject') ?? undefined;
+const replyToFrom = Astro.url.searchParams.get('from') ?? undefined;
+
+const replyTo =
+  replyToMessageId || replyToSubject || replyToFrom
+    ? {
+        messageId: replyToMessageId,
+        subject: replyToSubject,
+        fromAddress: replyToFrom,
+      }
+    : undefined;
+---
+
+<AppLayout title="Compose">
+  <ComposeView client:load replyTo={replyTo} />
+</AppLayout>

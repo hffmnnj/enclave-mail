@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": true,
+    "paths": {
+      "@enclave/db": ["./packages/db/src/index.ts"],
+      "@enclave/db/*": ["./packages/db/src/*"],
+      "@enclave/crypto": ["./packages/crypto/src/index.ts"],
+      "@enclave/crypto/*": ["./packages/crypto/src/*"],
+      "@enclave/types": ["./packages/types/src/index.ts"],
+      "@enclave/types/*": ["./packages/types/src/*"],
+      "@enclave/ui": ["./packages/ui/src/index.ts"],
+      "@enclave/ui/*": ["./packages/ui/src/*"]
+    }
+  }
+}

@@ -1,0 +1,158 @@
+# =============================================================================
+# Enclave Mail — Production Docker Compose
+# Full-stack orchestration: PostgreSQL, Redis, Mail Server, Webmail, Caddy
+#
+# Usage:
+#   1. Copy .env.example to .env and fill in production values
+#   2. Place TLS certs in the 'certs' volume (or bind-mount a host directory)
+#   3. Create docker/caddy/Caddyfile (see deployment docs)
+#   4. docker compose up -d
+#
+# Networks:
+#   - internal: isolated network for inter-service communication
+#   - external: Caddy's outward-facing network for HTTPS traffic
+#
+# Mail ports (25, 587, 993) are exposed directly from the server container
+# because TCP mail protocols cannot be reverse-proxied by Caddy's HTTP layer.
+# =============================================================================
+
+services:
+  # ── PostgreSQL 16 ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-enclave}
+      POSTGRES_USER: ${POSTGRES_USER:-enclave}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-enclave} -d ${POSTGRES_DB:-enclave}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  # ── Redis 7 ────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - internal
+
+  # ── Enclave Mail Server (Hono API + SMTP + IMAP) ──────────────────────────
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: "3001"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-enclave}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-enclave}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      SMTP_DOMAIN: ${SMTP_DOMAIN:?SMTP_DOMAIN is required}
+      TLS_CERT_PATH: ${TLS_CERT_PATH:-/certs/server.crt}
+      TLS_KEY_PATH: ${TLS_KEY_PATH:-/certs/server.key}
+      DKIM_PRIVATE_KEY_PATH: ${DKIM_PRIVATE_KEY_PATH:-/certs/dkim.key}
+      DKIM_SELECTOR: ${DKIM_SELECTOR:-mail}
+      CORS_ORIGINS: https://${DOMAIN:?DOMAIN is required}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-86400}
+    volumes:
+      - certs:/certs:ro
+    ports:
+      # Mail ports exposed directly — cannot be reverse-proxied via HTTP
+      - "25:25"      # SMTP inbound (MX delivery)
+      - "587:587"    # SMTP submission (authenticated clients)
+      - "993:993"    # IMAPS (TLS-wrapped IMAP)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    networks:
+      - internal
+
+  # ── Astro SSR Webmail ──────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "4321"
+      PUBLIC_API_URL: https://${DOMAIN}/api
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:4321/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    networks:
+      - internal
+
+  # ── Caddy Reverse Proxy ────────────────────────────────────────────────────
+  # Requires docker/caddy/Caddyfile — see deployment documentation
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"     # HTTP (redirects to HTTPS)
+      - "443:443"   # HTTPS
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    networks:
+      - internal
+      - external
+
+# ── Named Volumes ──────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    name: enclave_postgres_data
+  redis_data:
+    name: enclave_redis_data
+  certs:
+    name: enclave_certs
+  caddy_data:
+    name: enclave_caddy_data
+  caddy_config:
+    name: enclave_caddy_config
+
+# ── Networks ───────────────────────────────────────────────────────────────
+networks:
+  internal:
+    internal: true    # No external access — services communicate privately
+  external:
+    driver: bridge    # Caddy's outward-facing network for HTTPS traffic
