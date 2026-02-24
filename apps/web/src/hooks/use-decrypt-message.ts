@@ -1,6 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import * as React from 'react';
 
+import { getApiClient } from '../lib/api-client.js';
+
+type RpcResponse<T> = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<T>;
+};
+
 // ---------------------------------------------------------------------------
 // Types — mirrors the server GET /messages/:id response
 // ---------------------------------------------------------------------------
@@ -50,12 +58,18 @@ interface DecryptedMessage {
 // API helpers (same pattern as use-messages.ts)
 // ---------------------------------------------------------------------------
 
-const getApiBaseUrl = (): string => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL) {
-    return import.meta.env.PUBLIC_API_URL as string;
-  }
-  return 'http://localhost:3001';
+type DecryptApiClient = {
+  messages: {
+    ':id': {
+      $get: (
+        input: { param: { id: string } },
+        options: { headers: HeadersInit; signal?: AbortSignal },
+      ) => Promise<RpcResponse<ApiResponse<FullMessage>>>;
+    };
+  };
 };
+
+const api = getApiClient() as DecryptApiClient;
 
 const getAuthToken = (): string | null => {
   if (typeof window === 'undefined') return null;
@@ -78,11 +92,15 @@ const authHeaders = (): HeadersInit => {
 };
 
 const fetchMessage = async (messageId: string): Promise<FullMessage> => {
-  const base = getApiBaseUrl();
-  const res = await fetch(`${base}/messages/${messageId}`, {
-    headers: authHeaders(),
-    signal: AbortSignal.timeout(15_000),
-  });
+  const res = await api.messages[':id'].$get(
+    {
+      param: { id: messageId },
+    },
+    {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
 
   if (!res.ok) {
     throw new Error(`Failed to fetch message: ${String(res.status)}`);

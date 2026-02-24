@@ -1,7 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 
+import { getApiClient } from '../lib/api-client.js';
 import type { MessageListItem, PaginatedMessages } from './use-messages.js';
+
+type RpcResponse<T> = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<T>;
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,12 +31,29 @@ interface SearchResult {
 // API helpers (same pattern as use-messages.ts)
 // ---------------------------------------------------------------------------
 
-const getApiBaseUrl = (): string => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL) {
-    return import.meta.env.PUBLIC_API_URL as string;
-  }
-  return 'http://localhost:3001';
+type SearchApiClient = {
+  mailboxes: {
+    ':id': {
+      messages: {
+        $get: (
+          input: {
+            param: { id: string };
+            query: {
+              offset: string;
+              limit: string;
+              search?: string;
+              seen?: string;
+              flagged?: string;
+            };
+          },
+          options: { headers: HeadersInit; signal?: AbortSignal },
+        ) => Promise<RpcResponse<PaginatedMessages>>;
+      };
+    };
+  };
 };
+
+const api = getApiClient() as SearchApiClient;
 
 const getAuthToken = (): string | null => {
   if (typeof window === 'undefined') return null;
@@ -60,7 +84,6 @@ const fetchSearchResults = async (
   query: string,
   filters: SearchFilters,
 ): Promise<PaginatedMessages> => {
-  const base = getApiBaseUrl();
   const params = new URLSearchParams({
     offset: '0',
     limit: '50',
@@ -78,10 +101,42 @@ const fetchSearchResults = async (
     params.set('flagged', String(filters.flagged));
   }
 
-  const res = await fetch(`${base}/mailboxes/${mailboxId}/messages?${params.toString()}`, {
-    headers: authHeaders(),
-    signal: AbortSignal.timeout(15_000),
-  });
+  const rpcQuery: {
+    offset: string;
+    limit: string;
+    search?: string;
+    seen?: string;
+    flagged?: string;
+  } = {
+    offset: params.get('offset') ?? '0',
+    limit: params.get('limit') ?? '50',
+  };
+
+  const search = params.get('search');
+  if (search !== null) {
+    rpcQuery.search = search;
+  }
+
+  const seen = params.get('seen');
+  if (seen !== null) {
+    rpcQuery.seen = seen;
+  }
+
+  const flagged = params.get('flagged');
+  if (flagged !== null) {
+    rpcQuery.flagged = flagged;
+  }
+
+  const res = await api.mailboxes[':id'].messages.$get(
+    {
+      param: { id: mailboxId },
+      query: rpcQuery,
+    },
+    {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
 
   if (!res.ok) {
     throw new Error(`Search failed: ${String(res.status)}`);

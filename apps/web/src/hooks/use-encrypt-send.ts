@@ -1,6 +1,15 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 
+import { getApiClient } from '../lib/api-client.js';
+import { useMailboxes } from './use-mailboxes.js';
+import type { PaginatedMessages } from './use-messages.js';
+
+type RpcResponse<T> = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<T>;
+};
 // ---------------------------------------------------------------------------
 // Types — mirrors the server compose API response shapes
 // ---------------------------------------------------------------------------
@@ -46,16 +55,34 @@ interface ApiResponse<T> {
   data: T;
 }
 
+type ComposeApiClient = {
+  compose: {
+    send: {
+      $post: (
+        input: { json: SendPayload },
+        options: { headers: HeadersInit; signal?: AbortSignal },
+      ) => Promise<RpcResponse<ApiResponse<SendResult>>>;
+    };
+    draft: {
+      $post: (
+        input: { json: DraftPayload },
+        options: { headers: HeadersInit; signal?: AbortSignal },
+      ) => Promise<RpcResponse<ApiResponse<DraftResult>>>;
+      ':id': {
+        $put: (
+          input: { param: { id: string }; json: DraftPayload },
+          options: { headers: HeadersInit; signal?: AbortSignal },
+        ) => Promise<RpcResponse<ApiResponse<DraftResult>>>;
+      };
+    };
+  };
+};
+
 // ---------------------------------------------------------------------------
 // API helpers (same pattern as use-messages.ts)
 // ---------------------------------------------------------------------------
 
-const getApiBaseUrl = (): string => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL) {
-    return import.meta.env.PUBLIC_API_URL as string;
-  }
-  return 'http://localhost:3001';
-};
+const api = getApiClient() as ComposeApiClient;
 
 const getAuthToken = (): string | null => {
   if (typeof window === 'undefined') return null;
@@ -63,6 +90,15 @@ const getAuthToken = (): string | null => {
     return localStorage.getItem('enclave:sessionToken');
   } catch {
     return null;
+  }
+};
+
+const getCurrentUserEmail = (): string => {
+  if (typeof window === 'undefined') return 'me@localhost';
+  try {
+    return localStorage.getItem('enclave:userEmail') ?? 'me@localhost';
+  } catch {
+    return 'me@localhost';
   }
 };
 
@@ -167,6 +203,12 @@ interface ComposeInput {
  */
 const useEncryptSend = () => {
   const queryClient = useQueryClient();
+  const { data: mailboxes } = useMailboxes();
+
+  const sentMailboxId = React.useMemo(
+    () => mailboxes?.find((mailbox) => mailbox.type === 'sent')?.id,
+    [mailboxes],
+  );
 
   return useMutation({
     mutationFn: async (input: ComposeInput): Promise<SendResult> => {
@@ -194,13 +236,15 @@ const useEncryptSend = () => {
         },
       };
 
-      const base = getApiBaseUrl();
-      const res = await fetch(`${base}/compose/send`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(30_000),
-      });
+      const res = await api.compose.send.$post(
+        {
+          json: payload,
+        },
+        {
+          headers: authHeaders(),
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
 
       if (!res.ok) {
         const errorBody = (await res.json().catch(() => null)) as {
@@ -212,8 +256,70 @@ const useEncryptSend = () => {
       const json = (await res.json()) as ApiResponse<SendResult>;
       return json.data;
     },
-    onSuccess: () => {
-      // Invalidate all message queries so Sent mailbox updates
+    onMutate: async (input: ComposeInput) => {
+      if (!sentMailboxId) {
+        return {
+          previousMessages: [] as Array<[readonly unknown[], PaginatedMessages | undefined]>,
+        };
+      }
+
+      await queryClient.cancelQueries({ queryKey: ['messages', sentMailboxId] });
+
+      const previousMessages = queryClient.getQueriesData<PaginatedMessages>({
+        queryKey: ['messages', sentMailboxId],
+      }) as Array<[readonly unknown[], PaginatedMessages | undefined]>;
+
+      if (previousMessages.length === 0) {
+        return { previousMessages };
+      }
+
+      const sessionKey = getSessionKey();
+      if (!sessionKey) {
+        return { previousMessages };
+      }
+
+      const subjectEncrypted = await encryptField(stringToBytes(input.subject), sessionKey);
+
+      const optimisticMessage = {
+        id: `optimistic-${Date.now()}`,
+        uid: 0,
+        messageId: null,
+        fromAddress: getCurrentUserEmail(),
+        toAddresses: input.to,
+        subjectEncrypted,
+        date: new Date().toISOString(),
+        flags: { seen: true, flagged: false, deleted: false, draft: false },
+        size: 0,
+        dkimStatus: null,
+        spfStatus: null,
+        dmarcStatus: null,
+      };
+
+      for (const [queryKey] of previousMessages) {
+        queryClient.setQueryData<PaginatedMessages>(queryKey, (old) => ({
+          data: [optimisticMessage, ...(old?.data ?? [])],
+          total: (old?.total ?? 0) + 1,
+          offset: old?.offset ?? 0,
+          limit: old?.limit ?? 50,
+        }));
+      }
+
+      return { previousMessages };
+    },
+    onError: (_err, _input, context) => {
+      if (!context?.previousMessages) {
+        return;
+      }
+
+      for (const [queryKey, previous] of context.previousMessages) {
+        queryClient.setQueryData(queryKey, previous);
+      }
+    },
+    onSettled: () => {
+      if (sentMailboxId) {
+        void queryClient.invalidateQueries({ queryKey: ['messages', sentMailboxId] });
+      }
+
       void queryClient.invalidateQueries({ queryKey: ['messages'] });
     },
   });
@@ -258,19 +364,28 @@ const useSaveDraft = () => {
         encryptionMetadata: sessionKey ? { algorithm: 'chacha20-poly1305', version: 1 } : undefined,
       };
 
-      const base = getApiBaseUrl();
       const existingId = draftIdRef.current;
 
-      const url = existingId ? `${base}/compose/draft/${existingId}` : `${base}/compose/draft`;
-
-      const method = existingId ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
-        method,
-        headers: authHeaders(),
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15_000),
-      });
+      const res = existingId
+        ? await api.compose.draft[':id'].$put(
+            {
+              param: { id: existingId },
+              json: payload,
+            },
+            {
+              headers: authHeaders(),
+              signal: AbortSignal.timeout(15_000),
+            },
+          )
+        : await api.compose.draft.$post(
+            {
+              json: payload,
+            },
+            {
+              headers: authHeaders(),
+              signal: AbortSignal.timeout(15_000),
+            },
+          );
 
       if (!res.ok) {
         const errorBody = (await res.json().catch(() => null)) as {

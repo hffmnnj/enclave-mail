@@ -1,5 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { getApiClient } from '../lib/api-client.js';
+
+type RpcResponse<T> = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<T>;
+};
+
 // ---------------------------------------------------------------------------
 // Types — mirrors the server mailbox API response shapes
 // ---------------------------------------------------------------------------
@@ -34,12 +42,26 @@ const SYSTEM_MAILBOX_TYPES = new Set<MailboxType>(['inbox', 'sent', 'drafts', 't
 // API helpers (same pattern as use-messages.ts)
 // ---------------------------------------------------------------------------
 
-const getApiBaseUrl = (): string => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL) {
-    return import.meta.env.PUBLIC_API_URL as string;
-  }
-  return 'http://localhost:3001';
+type MailboxesApiClient = {
+  mailboxes: {
+    $get: (
+      input: Record<string, never>,
+      options: { headers: HeadersInit; signal?: AbortSignal },
+    ) => Promise<RpcResponse<ApiResponse<Mailbox[]>>>;
+    $post: (
+      input: { json: { name: string } },
+      options: { headers: HeadersInit },
+    ) => Promise<RpcResponse<ApiResponse<MailboxCreated>>>;
+    ':id': {
+      $delete: (
+        input: { param: { id: string } },
+        options: { headers: HeadersInit },
+      ) => Promise<RpcResponse<unknown>>;
+    };
+  };
 };
+
+const api = getApiClient() as MailboxesApiClient;
 
 const getAuthToken = (): string | null => {
   if (typeof window === 'undefined') return null;
@@ -66,11 +88,13 @@ const authHeaders = (): HeadersInit => {
 // ---------------------------------------------------------------------------
 
 const fetchMailboxes = async (): Promise<Mailbox[]> => {
-  const base = getApiBaseUrl();
-  const res = await fetch(`${base}/mailboxes`, {
-    headers: authHeaders(),
-    signal: AbortSignal.timeout(15_000),
-  });
+  const res = await api.mailboxes.$get(
+    {},
+    {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
 
   if (!res.ok) {
     throw new Error(`Failed to fetch mailboxes: ${String(res.status)}`);
@@ -81,12 +105,14 @@ const fetchMailboxes = async (): Promise<Mailbox[]> => {
 };
 
 const createMailboxRequest = async (name: string): Promise<MailboxCreated> => {
-  const base = getApiBaseUrl();
-  const res = await fetch(`${base}/mailboxes`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ name }),
-  });
+  const res = await api.mailboxes.$post(
+    {
+      json: { name },
+    },
+    {
+      headers: authHeaders(),
+    },
+  );
 
   if (!res.ok) {
     const errorBody = (await res.json().catch(() => null)) as {
@@ -102,11 +128,14 @@ const createMailboxRequest = async (name: string): Promise<MailboxCreated> => {
 };
 
 const deleteMailboxRequest = async (id: string): Promise<void> => {
-  const base = getApiBaseUrl();
-  const res = await fetch(`${base}/mailboxes/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
+  const res = await api.mailboxes[':id'].$delete(
+    {
+      param: { id },
+    },
+    {
+      headers: authHeaders(),
+    },
+  );
 
   if (!res.ok && res.status !== 204) {
     const errorBody = (await res.json().catch(() => null)) as {

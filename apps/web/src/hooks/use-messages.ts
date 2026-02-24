@@ -1,5 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { getApiClient } from '../lib/api-client.js';
+
+type RpcResponse<T> = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<T>;
+};
+
 // ---------------------------------------------------------------------------
 // Types — mirrors the server API response shapes
 // ---------------------------------------------------------------------------
@@ -37,12 +45,52 @@ interface PaginatedMessages {
 // API helpers
 // ---------------------------------------------------------------------------
 
-const getApiBaseUrl = (): string => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_API_URL) {
-    return import.meta.env.PUBLIC_API_URL as string;
-  }
-  return 'http://localhost:3001';
+type MessagesApiClient = {
+  mailboxes: {
+    ':id': {
+      messages: {
+        $get: (
+          input: {
+            param: { id: string };
+            query: {
+              offset: string;
+              limit: string;
+            };
+          },
+          options: { headers: HeadersInit; signal?: AbortSignal },
+        ) => Promise<RpcResponse<PaginatedMessages>>;
+      };
+    };
+  };
+  messages: {
+    ':id': {
+      flags: {
+        $patch: (
+          input: {
+            param: { id: string };
+            json: { flags: Partial<MessageFlags> };
+          },
+          options: { headers: HeadersInit },
+        ) => Promise<RpcResponse<{ data: { flags: MessageFlags } }>>;
+      };
+      $delete: (
+        input: { param: { id: string } },
+        options: { headers: HeadersInit },
+      ) => Promise<RpcResponse<unknown>>;
+      move: {
+        $post: (
+          input: {
+            param: { id: string };
+            json: { targetMailboxId: string };
+          },
+          options: { headers: HeadersInit },
+        ) => Promise<RpcResponse<unknown>>;
+      };
+    };
+  };
 };
+
+const api = getApiClient() as MessagesApiClient;
 
 const getAuthToken = (): string | null => {
   if (typeof window === 'undefined') return null;
@@ -69,16 +117,19 @@ const fetchMessages = async (
   offset: number,
   limit: number,
 ): Promise<PaginatedMessages> => {
-  const base = getApiBaseUrl();
-  const params = new URLSearchParams({
-    offset: String(offset),
-    limit: String(limit),
-  });
-
-  const res = await fetch(`${base}/mailboxes/${mailboxId}/messages?${params.toString()}`, {
-    headers: authHeaders(),
-    signal: AbortSignal.timeout(15_000),
-  });
+  const res = await api.mailboxes[':id'].messages.$get(
+    {
+      param: { id: mailboxId },
+      query: {
+        offset: String(offset),
+        limit: String(limit),
+      },
+    },
+    {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
 
   if (!res.ok) {
     throw new Error(`Failed to fetch messages: ${String(res.status)}`);
@@ -125,12 +176,15 @@ const useUpdateMessageFlags = (mailboxId: string) => {
 
   return useMutation({
     mutationFn: async ({ messageId, flags }: UpdateFlagsInput) => {
-      const base = getApiBaseUrl();
-      const res = await fetch(`${base}/messages/${messageId}/flags`, {
-        method: 'PATCH',
-        headers: authHeaders(),
-        body: JSON.stringify({ flags }),
-      });
+      const res = await api.messages[':id'].flags.$patch(
+        {
+          param: { id: messageId },
+          json: { flags },
+        },
+        {
+          headers: authHeaders(),
+        },
+      );
 
       if (!res.ok) {
         throw new Error(`Failed to update flags: ${String(res.status)}`);
@@ -153,11 +207,14 @@ const useDeleteMessage = (mailboxId: string) => {
 
   return useMutation({
     mutationFn: async (messageId: string) => {
-      const base = getApiBaseUrl();
-      const res = await fetch(`${base}/messages/${messageId}`, {
-        method: 'DELETE',
-        headers: authHeaders(),
-      });
+      const res = await api.messages[':id'].$delete(
+        {
+          param: { id: messageId },
+        },
+        {
+          headers: authHeaders(),
+        },
+      );
 
       if (!res.ok && res.status !== 204) {
         throw new Error(`Failed to delete message: ${String(res.status)}`);
@@ -183,12 +240,15 @@ const useMoveMessage = (mailboxId: string) => {
 
   return useMutation({
     mutationFn: async ({ messageId, targetMailboxId }: MoveMessageInput) => {
-      const base = getApiBaseUrl();
-      const res = await fetch(`${base}/messages/${messageId}/move`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ targetMailboxId }),
-      });
+      const res = await api.messages[':id'].move.$post(
+        {
+          param: { id: messageId },
+          json: { targetMailboxId },
+        },
+        {
+          headers: authHeaders(),
+        },
+      );
 
       if (!res.ok && res.status !== 204) {
         throw new Error(`Failed to move message: ${String(res.status)}`);
