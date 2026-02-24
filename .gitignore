@@ -32,6 +32,7 @@ build/
 
 # ─── DKIM / TLS private keys ───────────────────────────────────────────────
 dkim/
+certs/
 *.pem
 *.key
 *.p12
