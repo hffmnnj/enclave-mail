@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
@@ -66,6 +67,34 @@ function pipeSubprocessStream(
   })();
 }
 
+function freeSMTPPorts(logger: Pick<typeof console, 'info' | 'error'>): void {
+  // In dev, hot-reloads leave stale Haraka child processes holding the SMTP
+  // ports. Kill any process currently bound to those ports before spawning.
+  const smtpIniPath = resolve(process.cwd(), 'haraka', 'config', 'smtp.ini');
+  const ports: number[] = [];
+
+  try {
+    const ini = require('node:fs').readFileSync(smtpIniPath, 'utf8') as string;
+    const listenLine = ini.split('\n').find((l: string) => l.startsWith('listen='));
+    if (listenLine) {
+      for (const match of listenLine.matchAll(/:(\d+)/g)) {
+        ports.push(Number(match[1]));
+      }
+    }
+  } catch {
+    // smtp.ini not readable — skip
+  }
+
+  for (const port of ports) {
+    try {
+      execSync(`fuser -k ${port}/tcp 2>/dev/null`, { stdio: 'ignore' });
+      logger.info(`[smtp] freed port ${port}`);
+    } catch {
+      // nothing was holding the port — that's fine
+    }
+  }
+}
+
 export function startSMTPServer(options: StartSMTPServerOptions = {}): BunSubprocess {
   const logger = options.logger ?? console;
   const cwd = options.cwd ?? process.cwd();
@@ -79,6 +108,9 @@ export function startSMTPServer(options: StartSMTPServerOptions = {}): BunSubpro
       ? resolve(cwd, options.harakaConfigPath)
       : defaults.harakaConfigPath,
   };
+
+  // Kill any stale Haraka processes from a previous hot-reload before spawning.
+  freeSMTPPorts(logger);
 
   try {
     writeHarakaRuntimeConfig(config);
