@@ -8,6 +8,8 @@
 
 Enclave Mail is a complete email server and webmail client you run on your own VPS. The server stores only ciphertext and never sees your plaintext messages or passwords. Your private keys are generated in the browser and never leave your device.
 
+Note: Email is fundamentally an insecure communication protocol. If your goal is private communication, email alone cannot guarantee it. No matter how secure your platform is, your privacy is still limited by the recipient’s security and privacy practices.
+
 ---
 
 ## Architecture
