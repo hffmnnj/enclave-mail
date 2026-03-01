@@ -9,6 +9,7 @@ interface Props {
 
 const { title = 'Enclave Mail' } = Astro.props;
 const currentPath = Astro.url.pathname;
+const nonce = Astro.locals.nonce;
 ---
 
 <!doctype html>
@@ -30,7 +31,7 @@ const currentPath = Astro.url.pathname;
     </MobileShell>
     <SecurityStatusBar client:only="react" />
 
-    <script>
+    <script nonce={nonce}>
       import { registerServiceWorker } from '../lib/sw-register';
       registerServiceWorker();
     </script>

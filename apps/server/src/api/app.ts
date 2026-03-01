@@ -7,6 +7,7 @@ import { accountRouter } from '../routes/account.js';
 import { authRouter } from '../routes/auth.js';
 import { setupRouter } from '../routes/setup.js';
 import { composeRouter } from './routes/compose.js';
+import { cspRouter } from './routes/csp.js';
 import { keysRouter } from './routes/keys.js';
 import { mailboxRouter } from './routes/mailbox.js';
 import { messageRouter } from './routes/messages.js';
@@ -84,6 +85,9 @@ apiApp.onError((err, c) => {
 
 // --- Health check (no auth required) ---
 apiApp.get('/health', (c) => c.json({ status: 'healthy', timestamp: new Date().toISOString() }));
+
+// --- CSP report route (public by design) ---
+apiApp.route('/', cspRouter);
 
 // --- Auth routes (public — SRP register/login/logout, no auth token required) ---
 // MUST be registered before the protected routers below. Hono matches routes in
