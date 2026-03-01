@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v0.1.0-green.svg)](https://github.com/hffmnnj/enclave-mail/releases)
 
-**Self-hosted, end-to-end encrypted email with Proton Mail-level security — user-controlled keys and infrastructure.**
+**Self-hosted, privacy-first email with user-controlled keys and infrastructure.**
 
-Enclave Mail is a complete email server and webmail client you run on your own VPS. The server stores only ciphertext and never sees your plaintext messages or passwords. Your private keys are generated in the browser and never leave your device.
+Enclave Mail is a complete email server and webmail client you run on your own VPS. Inbound messages are stored as ciphertext that the server cannot decrypt. Outbound messages transit the server encrypted at rest (AES-256-GCM) for SMTP relay — an inherent constraint of standard SMTP architecture. Your private keys are generated in the browser and never leave your device. Passwords are never transmitted in plaintext.
 
 ---
 
@@ -44,7 +44,7 @@ graph TB
     style Crypto fill:#1A1D2B,color:#4A9BAE
 ```
 
-> 🔒 **Zero-knowledge design**: The server stores only encrypted ciphertext. Your private keys and message content never leave your device.
+> **Privacy design**: Inbound messages are stored as X25519+ChaCha20-Poly1305 ciphertext — the server never decrypts them. Outbound MIME bodies are encrypted at rest in the queue (AES-256-GCM) and decrypted by the server only at the moment of SMTP transmission, which is required for standard email delivery. Private keys never leave your device.
 
 ---
 
@@ -343,7 +343,10 @@ bun run format      # Format with Biome
 | Key derivation | Argon2id (64 MiB memory, 3 iterations) |
 | Asymmetric keys | X25519 (key exchange) + Ed25519 (signing) |
 | Symmetric cipher | ChaCha20-Poly1305 |
-| Storage | Server stores ciphertext only — zero plaintext at rest |
+| Inbound storage | Stored as X25519+ChaCha20-Poly1305 ciphertext; server never decrypts |
+| Outbound MIME body | Encrypted at rest in queue (AES-256-GCM, server-side key); server decrypts for SMTP relay |
+
+> **Architectural note:** Standard SMTP requires the sending server to relay the full message to the recipient's mail server. Full end-to-end encryption for outbound mail is not possible within standard SMTP. The outbound MIME body is encrypted at rest in the BullMQ/Redis queue and purged immediately after transmission. A future roadmap item is client-assembled MIME to reduce the server's access window.
 
 ---
 
