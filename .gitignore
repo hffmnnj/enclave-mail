@@ -1,6 +1,6 @@
 # GoopSpec (internal planning files)
 .goopspec/
-
+.roadmap/
 # ─── Bun ───────────────────────────────────────────────────────────────────
 .bun/
 # bun.lock is intentionally tracked — do NOT add it here

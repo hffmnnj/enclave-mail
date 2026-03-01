@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 
 import { getApiClient } from '../lib/api-client.js';
+import { queueCompose } from '../lib/offline-store.js';
 import { useMailboxes } from './use-mailboxes.js';
 import type { PaginatedMessages } from './use-messages.js';
 
@@ -26,11 +27,14 @@ interface SendPayload {
     recipientKeyFingerprints?: string[] | undefined;
     version?: number | undefined;
   };
+  attachmentIds?: string[] | undefined;
 }
 
 interface SendResult {
   messageId: string;
   status: 'queued';
+  /** True when the message was queued offline for later delivery. */
+  offlineQueued?: boolean | undefined;
 }
 
 interface DraftPayload {
@@ -136,8 +140,9 @@ const stringToBytes = (str: string): Uint8Array => {
  *
  * Returns the concatenation of [nonce (12B) | ciphertext + tag] as base64.
  *
- * Security invariant: encryption happens entirely client-side.
- * The server never receives plaintext content.
+ * Security model: subject/body encryption happens client-side.
+ * MIME plaintext still transits to the compose API for SMTP interoperability,
+ * then the server encrypts MIME at rest before queueing outbound delivery.
  */
 const encryptField = async (plaintext: Uint8Array, sessionKey: Uint8Array): Promise<string> => {
   // Dynamic import to keep the crypto bundle lazy-loaded
@@ -173,7 +178,8 @@ const getSessionKey = (): Uint8Array | undefined => {
 
 declare global {
   interface Window {
-    __enclave_session_key?: Uint8Array;
+    __enclave_session_key?: Uint8Array | undefined;
+    __enclave_x25519_private_key?: Uint8Array | undefined;
   }
 }
 
@@ -187,6 +193,7 @@ interface ComposeInput {
   bcc?: string[] | undefined;
   subject: string;
   htmlBody: string;
+  attachmentIds?: string[] | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,8 +205,9 @@ interface ComposeInput {
  * then POSTs to /compose/send. On success, invalidates the messages
  * query cache so the Sent mailbox reflects the new message.
  *
- * Security invariant: the server receives only ciphertext — never
- * plaintext subject or body content.
+ * Security model: subject/body are ciphertext at transit and rest.
+ * MIME plaintext is included only for SMTP delivery and is encrypted
+ * immediately server-side before BullMQ/Redis persistence.
  */
 const useEncryptSend = () => {
   const queryClient = useQueryClient();
@@ -229,22 +237,42 @@ const useEncryptSend = () => {
         bcc: input.bcc?.length ? input.bcc : undefined,
         encryptedSubject,
         encryptedBody,
+        // Required for outbound SMTP delivery; compose API encrypts this at rest
+        // before storing queue payloads in Redis.
         mimeBody: input.htmlBody,
         encryptionMetadata: {
           algorithm: 'chacha20-poly1305',
           version: 1,
         },
+        attachmentIds: input.attachmentIds?.length ? input.attachmentIds : undefined,
       };
 
-      const res = await api.compose.send.$post(
-        {
-          json: payload,
-        },
-        {
-          headers: authHeaders(),
-          signal: AbortSignal.timeout(30_000),
-        },
-      );
+      let res: RpcResponse<ApiResponse<SendResult>>;
+      try {
+        res = await api.compose.send.$post(
+          {
+            json: payload,
+          },
+          {
+            headers: authHeaders(),
+            signal: AbortSignal.timeout(30_000),
+          },
+        );
+      } catch (error: unknown) {
+        // Network failure (offline, DNS, timeout) — queue for background sync
+        if (
+          error instanceof TypeError ||
+          (error instanceof DOMException && error.name === 'AbortError')
+        ) {
+          await queueCompose(payload as unknown as Record<string, unknown>);
+          return {
+            messageId: `offline-${Date.now()}`,
+            status: 'queued' as const,
+            offlineQueued: true,
+          };
+        }
+        throw error;
+      }
 
       if (!res.ok) {
         const errorBody = (await res.json().catch(() => null)) as {

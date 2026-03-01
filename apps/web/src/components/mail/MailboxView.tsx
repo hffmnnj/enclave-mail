@@ -4,6 +4,10 @@
  * Thin routing adapter that maps a mailbox type (e.g. "inbox", "sent") to its
  * UUID and delegates to InboxView. Mounted as a React island by the Astro
  * catch-all mail route — wraps with QueryClientProvider for island isolation.
+ *
+ * Includes a session key gate: if the user has a valid session token but the
+ * in-memory session key is absent (e.g. after page refresh), an unlock prompt
+ * is shown to re-derive the key from the user's passphrase (Proton Mail model).
  */
 import * as React from 'react';
 
@@ -11,7 +15,10 @@ import { QueryClientProvider } from '@tanstack/react-query';
 
 import { useMailboxes } from '../../hooks/use-mailboxes.js';
 import { getQueryClient } from '../../lib/query-client.js';
+import { SessionGate } from '../auth/SessionGate.js';
+import { UnverifiedBanner } from '../auth/UnverifiedBanner.js';
 import { InboxView } from './InboxView.js';
+import { PushPermissionPrompt } from './PushPermissionPrompt.js';
 
 interface MailboxViewProps {
   /** The mailbox type slug from the URL (e.g. "inbox", "sent", "drafts"). */
@@ -50,15 +57,24 @@ const MailboxViewInner = ({ mailboxType }: MailboxViewProps): React.ReactElement
     );
   }
 
-  return <InboxView mailboxId={mailbox.id} />;
+  return (
+    <>
+      <UnverifiedBanner />
+      <PushPermissionPrompt />
+      <InboxView mailboxId={mailbox.id} />
+    </>
+  );
 };
 
-// Public component — wraps with QueryClientProvider for React island isolation
+// Public component — wraps with QueryClientProvider and session key gate
 const MailboxView = ({ mailboxType }: MailboxViewProps): React.ReactElement => {
   const [queryClient] = React.useState(() => getQueryClient());
+
   return (
     <QueryClientProvider client={queryClient}>
-      <MailboxViewInner mailboxType={mailboxType} />
+      <SessionGate>
+        <MailboxViewInner mailboxType={mailboxType} />
+      </SessionGate>
     </QueryClientProvider>
   );
 };

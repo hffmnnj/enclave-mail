@@ -15,9 +15,16 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import * as React from 'react';
 
 import { useDecryptMessage } from '../../hooks/use-decrypt-message.js';
-import { useUpdateMessageFlags } from '../../hooks/use-messages.js';
+import { useMailboxes } from '../../hooks/use-mailboxes.js';
+import {
+  useDeleteMessage,
+  useMoveMessage,
+  useUpdateMessageFlags,
+} from '../../hooks/use-messages.js';
 import { getQueryClient } from '../../lib/query-client.js';
+import { SessionGate } from '../auth/SessionGate.js';
 import { MessageContent } from './MessageContent.js';
+import { MoveToFolderDialog } from './MoveToFolderDialog.js';
 
 // ---------------------------------------------------------------------------
 // Date formatting — full format for message view
@@ -157,58 +164,40 @@ const MessageError = ({ message, onRetry }: { message: string; onRetry: () => vo
 );
 
 // ---------------------------------------------------------------------------
-// Reply bar stub (collapsed — full compose in 9.3)
+// Reply bar — navigates to compose with pre-filled reply context
 // ---------------------------------------------------------------------------
 
-const ReplyBar = () => {
-  const [isExpanded, setIsExpanded] = React.useState(false);
+interface ReplyBarProps {
+  fromAddress: string;
+  subject: string;
+  messageId: string;
+}
 
-  if (!isExpanded) {
-    return (
-      <button
-        type="button"
-        onClick={() => setIsExpanded(true)}
-        className="flex w-full items-center gap-2 rounded-sm border border-border bg-surface px-3 py-2.5 text-left transition-colors hover:bg-surface-raised"
-      >
-        <HugeiconsIcon
-          icon={MailReply01Icon as IconSvgElement}
-          size={14}
-          strokeWidth={1.5}
-          className="text-text-secondary"
-        />
-        <span className="text-ui-sm text-text-secondary">Reply...</span>
-      </button>
-    );
-  }
+const ReplyBar = ({ fromAddress, subject, messageId }: ReplyBarProps) => {
+  const handleReply = React.useCallback(() => {
+    const replySubject = subject.replace(/^Re:\s*/i, '');
+    const params = new URLSearchParams({
+      replyTo: messageId,
+      subject: `Re: ${replySubject}`,
+      from: fromAddress,
+    });
+    window.location.href = `/mail/compose?${params.toString()}`;
+  }, [fromAddress, subject, messageId]);
 
   return (
-    <div className="rounded-sm border border-border bg-surface p-3">
-      <div className="flex items-center gap-2 pb-2">
-        <HugeiconsIcon
-          icon={MailReply01Icon as IconSvgElement}
-          size={14}
-          strokeWidth={1.5}
-          className="text-primary"
-        />
-        <span className="text-ui-sm font-medium text-text-primary">Reply</span>
-      </div>
-      <div className="rounded-sm border border-border bg-background px-3 py-6 text-center text-ui-xs text-text-secondary">
-        Compose view coming soon — use the Compose button in the header.
-      </div>
-      <div className="mt-2 flex justify-end gap-1.5">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-ui-xs"
-          onClick={() => setIsExpanded(false)}
-        >
-          Cancel
-        </Button>
-        <Button variant="default" size="sm" className="h-7 text-ui-xs" disabled>
-          Send
-        </Button>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={handleReply}
+      className="flex w-full items-center gap-2 rounded-sm border border-border bg-surface px-3 py-2.5 text-left transition-colors hover:bg-surface-raised"
+    >
+      <HugeiconsIcon
+        icon={MailReply01Icon as IconSvgElement}
+        size={14}
+        strokeWidth={1.5}
+        className="text-text-secondary"
+      />
+      <span className="text-ui-sm text-text-secondary">Reply to {fromAddress}...</span>
+    </button>
   );
 };
 
@@ -234,7 +223,13 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
   // Mark message as read on mount
   // We use a dummy mailboxId — the flag update endpoint uses messageId directly
   const updateFlags = useUpdateMessageFlags('_');
+  const deleteMessage = useDeleteMessage('_');
+  const moveMessage = useMoveMessage('_');
+  const { data: mailboxes } = useMailboxes();
   const markedReadRef = React.useRef(false);
+
+  // Move-to-folder dialog state
+  const [showMoveDialog, setShowMoveDialog] = React.useState(false);
 
   React.useEffect(() => {
     if (message && !message.flags.seen && !markedReadRef.current) {
@@ -242,6 +237,70 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
       updateFlags.mutate({ messageId: message.id, flags: { seen: true } });
     }
   }, [message, updateFlags]);
+
+  // --- Action handlers ---
+
+  const handleReply = React.useCallback(() => {
+    if (!message) return;
+    const replySubject = (decryptedSubject ?? '').replace(/^Re:\s*/i, '');
+    const params = new URLSearchParams({
+      replyTo: message.id,
+      subject: `Re: ${replySubject}`,
+      from: message.fromAddress,
+    });
+    window.location.href = `/mail/compose?${params.toString()}`;
+  }, [message, decryptedSubject]);
+
+  const handleForward = React.useCallback(() => {
+    if (!message) return;
+    const fwdSubject = (decryptedSubject ?? '').replace(/^Fwd:\s*/i, '');
+    const params = new URLSearchParams({
+      subject: `Fwd: ${fwdSubject}`,
+    });
+    // Include quoted body if available
+    if (decryptedBody) {
+      params.set('body', decryptedBody);
+    }
+    window.location.href = `/mail/compose?${params.toString()}`;
+  }, [message, decryptedSubject, decryptedBody]);
+
+  const handleArchive = React.useCallback(() => {
+    if (!message || !mailboxes) return;
+    const archiveMailbox = mailboxes.find((m) => m.type === 'archive');
+    if (!archiveMailbox) return;
+    moveMessage.mutate(
+      { messageId: message.id, targetMailboxId: archiveMailbox.id },
+      {
+        onSuccess: () => {
+          window.location.href = '/mail/inbox';
+        },
+      },
+    );
+  }, [message, mailboxes, moveMessage]);
+
+  const handleDelete = React.useCallback(() => {
+    if (!message) return;
+    deleteMessage.mutate(message.id, {
+      onSuccess: () => {
+        window.location.href = '/mail/inbox';
+      },
+    });
+  }, [message, deleteMessage]);
+
+  const handleMove = React.useCallback(
+    (targetMailboxId: string) => {
+      if (!message) return;
+      moveMessage.mutate(
+        { messageId: message.id, targetMailboxId },
+        {
+          onSuccess: () => {
+            window.location.href = '/mail/inbox';
+          },
+        },
+      );
+    },
+    [message, moveMessage],
+  );
 
   // Loading state
   if (isLoading) {
@@ -292,9 +351,7 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
             size="icon"
             className="h-7 w-7 max-md:h-11 max-md:w-11"
             aria-label="Reply"
-            onClick={() => {
-              document.getElementById('reply-bar')?.scrollIntoView({ behavior: 'smooth' });
-            }}
+            onClick={handleReply}
           >
             <HugeiconsIcon
               icon={ArrowTurnBackwardIcon as IconSvgElement}
@@ -307,7 +364,7 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
             size="icon"
             className="h-7 w-7 max-md:hidden"
             aria-label="Forward"
-            disabled
+            onClick={handleForward}
           >
             <HugeiconsIcon
               icon={ArrowTurnForwardIcon as IconSvgElement}
@@ -320,7 +377,8 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
             size="icon"
             className="h-7 w-7 max-md:hidden"
             aria-label="Archive"
-            disabled
+            onClick={handleArchive}
+            disabled={!mailboxes?.some((m) => m.type === 'archive')}
           >
             <HugeiconsIcon icon={Archive01Icon as IconSvgElement} size={14} strokeWidth={1.5} />
           </Button>
@@ -328,8 +386,8 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
             variant="ghost"
             size="icon"
             className="h-7 w-7 max-md:hidden"
-            aria-label="Move"
-            disabled
+            aria-label="Move to folder"
+            onClick={() => setShowMoveDialog(true)}
           >
             <HugeiconsIcon
               icon={FolderTransferIcon as IconSvgElement}
@@ -342,7 +400,7 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
             size="icon"
             className="h-7 w-7 max-md:h-11 max-md:w-11 text-danger hover:text-danger"
             aria-label="Delete"
-            disabled
+            onClick={handleDelete}
           >
             <HugeiconsIcon icon={Delete01Icon as IconSvgElement} size={14} strokeWidth={1.5} />
           </Button>
@@ -407,10 +465,19 @@ const ThreadViewInner = ({ messageId }: ThreadViewInnerProps) => {
 
           {/* Reply bar */}
           <div id="reply-bar" className="mt-6 pb-6 max-md:mt-4 max-md:pb-4">
-            <ReplyBar />
+            <ReplyBar fromAddress={message.fromAddress} subject={subject} messageId={message.id} />
           </div>
         </div>
       </div>
+
+      {/* Move to folder dialog */}
+      {showMoveDialog && mailboxes && (
+        <MoveToFolderDialog
+          mailboxes={mailboxes}
+          onMove={handleMove}
+          onClose={() => setShowMoveDialog(false)}
+        />
+      )}
     </div>
   );
 };
@@ -428,7 +495,9 @@ const ThreadView = ({ messageId }: ThreadViewProps) => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThreadViewInner messageId={messageId} />
+      <SessionGate>
+        <ThreadViewInner messageId={messageId} />
+      </SessionGate>
     </QueryClientProvider>
   );
 };

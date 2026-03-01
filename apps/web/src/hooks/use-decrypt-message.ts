@@ -2,6 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import * as React from 'react';
 
 import { getApiClient } from '../lib/api-client.js';
+import { decryptField } from '../lib/crypto-client.js';
+
+import type { EncryptionMetadata, KeyMaterial } from '../lib/crypto-client.js';
 
 type RpcResponse<T> = {
   ok: boolean;
@@ -114,61 +117,57 @@ const fetchMessage = async (messageId: string): Promise<FullMessage> => {
 // Client-side decryption helpers
 // ---------------------------------------------------------------------------
 
-/** Decode a base64 string to Uint8Array. */
-const base64ToBytes = (base64: string): Uint8Array => {
-  const raw = atob(base64);
-  const bytes = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) {
-    bytes[i] = raw.charCodeAt(i);
+const resolveEncryptionMetadata = (
+  encryptionMetadata?: Record<string, unknown>,
+): EncryptionMetadata => {
+  if (encryptionMetadata?.algorithm === 'x25519-chacha20poly1305') {
+    return encryptionMetadata as EncryptionMetadata;
   }
-  return bytes;
-};
 
-/** Decode a Uint8Array to a UTF-8 string. */
-const bytesToString = (bytes: Uint8Array): string => {
-  return new TextDecoder().decode(bytes);
-};
+  if (encryptionMetadata?.algorithm === 'chacha20-poly1305') {
+    const version =
+      typeof encryptionMetadata.version === 'number' ? encryptionMetadata.version : undefined;
 
-/**
- * Attempt to decrypt a base64-encoded encrypted field using the session key.
- *
- * Security invariant: the private key and passphrase never leave the client.
- * If the session key is unavailable, returns undefined (graceful degradation).
- *
- * Encrypted format: [nonce (12B) | ciphertext + tag]
- * Uses ChaCha20-Poly1305 with the session-derived key.
- */
-const tryDecryptField = (_base64Encrypted: string): string | undefined => {
-  if (typeof window === 'undefined') return undefined;
-
-  try {
-    const sessionKey = window.__enclave_session_key;
-    if (!sessionKey || !(sessionKey instanceof Uint8Array)) {
-      return undefined;
+    if (version !== undefined) {
+      return {
+        algorithm: 'chacha20-poly1305',
+        version,
+      };
     }
 
-    const bytes = base64ToBytes(_base64Encrypted);
-    const NONCE_LENGTH = 12;
-    if (bytes.length <= NONCE_LENGTH) return undefined;
-
-    // Full decryption will be wired when @enclave/crypto is bundled for browser.
-    // This is a safe degradation — content shows as encrypted until
-    // the crypto module is available in the browser bundle.
-    return undefined;
-  } catch {
-    return undefined;
+    return {
+      algorithm: 'chacha20-poly1305',
+    };
   }
+
+  return { algorithm: 'chacha20-poly1305' };
 };
 
-// ---------------------------------------------------------------------------
-// Global augmentation for session key (shared with InboxView)
-// ---------------------------------------------------------------------------
+const tryDecryptField = (
+  base64Encrypted: string,
+  encryptionMetadata?: Record<string, unknown>,
+): string | undefined => {
+  if (typeof window === 'undefined') return undefined;
 
-declare global {
-  interface Window {
-    __enclave_session_key?: Uint8Array;
+  const sessionKey = window.__enclave_session_key;
+  if (!sessionKey || !(sessionKey instanceof Uint8Array)) {
+    return undefined;
   }
-}
+
+  try {
+    const x25519PrivateKey = window.__enclave_x25519_private_key;
+    const keyMaterial: KeyMaterial = { sessionKey };
+    if (x25519PrivateKey instanceof Uint8Array) {
+      keyMaterial.x25519PrivateKey = x25519PrivateKey;
+    }
+
+    const metadata = resolveEncryptionMetadata(encryptionMetadata);
+    const decrypted = decryptField(base64Encrypted, metadata, keyMaterial);
+    return decrypted ?? '[Encrypted]';
+  } catch {
+    return '[Encrypted]';
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Hook: useDecryptMessage
@@ -217,26 +216,10 @@ const useDecryptMessage = (messageId: string) => {
     // Decrypt body
     if (message.body?.encryptedBody) {
       try {
-        const sessionKey = typeof window !== 'undefined' ? window.__enclave_session_key : undefined;
-
-        if (!sessionKey || !(sessionKey instanceof Uint8Array)) {
-          // No session key — graceful degradation, not an error
-          decryptedBody = undefined;
-        } else {
-          // Attempt decryption
-          decryptedBody = tryDecryptField(message.body.encryptedBody);
-
-          // If decryption returned undefined but we have a session key,
-          // the crypto module isn't wired yet — show the raw body as
-          // a fallback for development (base64 decoded if possible)
-          if (decryptedBody === undefined) {
-            try {
-              decryptedBody = bytesToString(base64ToBytes(message.body.encryptedBody));
-            } catch {
-              decryptionError = 'Failed to decode message body';
-            }
-          }
-        }
+        decryptedBody = tryDecryptField(
+          message.body.encryptedBody,
+          message.body.encryptionMetadata,
+        );
       } catch (err) {
         decryptionError = err instanceof Error ? err.message : 'Decryption failed';
       }
