@@ -16,6 +16,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { useMailboxes } from '../../hooks/use-mailboxes.js';
 import { getQueryClient } from '../../lib/query-client.js';
 import { SessionGate } from '../auth/SessionGate.js';
+import { UnverifiedBanner } from '../auth/UnverifiedBanner.js';
 import { InboxView } from './InboxView.js';
 
 interface MailboxViewProps {
@@ -55,7 +56,12 @@ const MailboxViewInner = ({ mailboxType }: MailboxViewProps): React.ReactElement
     );
   }
 
-  return <InboxView mailboxId={mailbox.id} />;
+  return (
+    <>
+      <UnverifiedBanner />
+      <InboxView mailboxId={mailbox.id} />
+    </>
+  );
 };
 
 // Public component — wraps with QueryClientProvider and session key gate

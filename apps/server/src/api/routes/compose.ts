@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 
-import { db, mailboxes, messageBodies, messages } from '@enclave/db';
+import { db, mailboxes, messageBodies, messages, users } from '@enclave/db';
 import type { OutboundMailJob } from '@enclave/types';
 import type { Queue } from 'bullmq';
 import { and, eq, sql } from 'drizzle-orm';
@@ -10,6 +10,12 @@ import { z } from 'zod';
 import { encryptMimeBody } from '../../lib/mime-encryption.js';
 import type { AuthVariables } from '../../middleware/auth.js';
 import { authMiddleware, requireKeyExport } from '../../middleware/auth.js';
+import {
+  draftCreateRateLimit,
+  draftDeleteRateLimit,
+  draftUpdateRateLimit,
+  sendRateLimit,
+} from '../../middleware/rate-limit.js';
 import type { ApiError, ApiResponse } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -74,8 +80,9 @@ type DraftListItem = {
 
 export interface ComposeRouteDeps {
   getDb: () => typeof db;
-  getOutboundQueue: () => Pick<Queue<OutboundMailJob>, 'add'>;
+  getOutboundQueue: () => Pick<Queue<OutboundMailJob>, 'add' | 'getJobs'>;
   getUserEmail: (userId: string) => Promise<string | null>;
+  maxOutboundQueueDepth: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,8 +129,25 @@ export const createComposeRouter = (deps: ComposeRouteDeps): Hono<{ Variables: A
   // POST /compose/send — encrypt + store in Sent + queue outbound
   // -------------------------------------------------------------------------
 
-  router.post('/compose/send', async (c) => {
+  router.post('/compose/send', sendRateLimit, async (c) => {
     const userId = c.get('userId');
+
+    // Block unverified accounts from sending (unless verification is disabled or user is admin)
+    if (process.env.REQUIRE_EMAIL_VERIFICATION !== 'false') {
+      const verificationRows = await getDb()
+        .select({ emailVerified: users.emailVerified, isAdmin: users.isAdmin })
+        .from(users)
+        .where(eq(users.id, userId));
+
+      const verificationUser = verificationRows[0];
+      if (verificationUser && !verificationUser.emailVerified && !verificationUser.isAdmin) {
+        const body: ApiError = {
+          error: 'Email not verified. Please verify your email address before sending messages.',
+          code: 'EMAIL_NOT_VERIFIED',
+        };
+        return c.json(body, 403);
+      }
+    }
 
     const result = await parseJsonBody(c, sendSchema);
     if (!result.success) {
@@ -206,10 +230,22 @@ export const createComposeRouter = (deps: ComposeRouteDeps): Hono<{ Variables: A
       return c.json(body, 500);
     }
 
+    // Check per-user outbound queue depth before enqueuing
+    const queue = deps.getOutboundQueue();
+    const activeJobs = await queue.getJobs(['waiting', 'active', 'delayed']);
+    const userJobCount = activeJobs.filter((j) => j.data.from === userEmail).length;
+    if (userJobCount >= deps.maxOutboundQueueDepth) {
+      const body: ApiError = {
+        error: 'Queue depth limit exceeded',
+        code: 'QUEUE_DEPTH_EXCEEDED',
+      };
+      return c.json(body, 429);
+    }
+
     const { encryptedMimeBody, mimeBodyNonce } = encryptMimeBody(payload.mimeBody);
 
     // Enqueue outbound delivery job
-    await deps.getOutboundQueue().add('outbound-send', {
+    await queue.add('outbound-send', {
       to: allRecipients,
       from: userEmail,
       encryptedBodyRef: messageId,
@@ -228,7 +264,7 @@ export const createComposeRouter = (deps: ComposeRouteDeps): Hono<{ Variables: A
   // POST /compose/draft — save a new draft
   // -------------------------------------------------------------------------
 
-  router.post('/compose/draft', async (c) => {
+  router.post('/compose/draft', draftCreateRateLimit, async (c) => {
     const userId = c.get('userId');
 
     const result = await parseJsonBody(c, draftCreateSchema);
@@ -359,7 +395,7 @@ export const createComposeRouter = (deps: ComposeRouteDeps): Hono<{ Variables: A
   // PUT /compose/draft/:id — update a draft
   // -------------------------------------------------------------------------
 
-  router.put('/compose/draft/:id', async (c) => {
+  router.put('/compose/draft/:id', draftUpdateRateLimit, async (c) => {
     const userId = c.get('userId');
     const draftId = c.req.param('id');
 
@@ -431,7 +467,7 @@ export const createComposeRouter = (deps: ComposeRouteDeps): Hono<{ Variables: A
   // DELETE /compose/draft/:id — hard delete a draft
   // -------------------------------------------------------------------------
 
-  router.delete('/compose/draft/:id', async (c) => {
+  router.delete('/compose/draft/:id', draftDeleteRateLimit, async (c) => {
     const userId = c.get('userId');
     const draftId = c.req.param('id');
 
@@ -480,7 +516,6 @@ export const createComposeRouter = (deps: ComposeRouteDeps): Hono<{ Variables: A
 // Default instance wired to real dependencies
 // ---------------------------------------------------------------------------
 
-import { users } from '@enclave/db';
 import { createOutboundMailQueue } from '../../queue/mail-queue.js';
 
 const defaultGetUserEmail = async (userId: string): Promise<string | null> => {
@@ -497,8 +532,11 @@ const getOutboundQueue = (): Queue<OutboundMailJob> => {
   return outboundQueueInstance;
 };
 
+const MAX_OUTBOUND_QUEUE_DEPTH = Number(process.env.MAX_OUTBOUND_QUEUE_DEPTH ?? 100);
+
 export const composeRouter = createComposeRouter({
   getDb: () => db,
   getOutboundQueue,
   getUserEmail: defaultGetUserEmail,
+  maxOutboundQueueDepth: MAX_OUTBOUND_QUEUE_DEPTH,
 });

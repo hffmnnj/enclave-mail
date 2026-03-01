@@ -1,18 +1,21 @@
 import { Buffer } from 'node:buffer';
+import { randomBytes } from 'node:crypto';
 
 import { srpDeriveServerSession, srpGenerateServerEphemeral } from '@enclave/crypto';
 import { db, users } from '@enclave/db';
-import { eq } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
-
+import type { AuthVariables } from '../middleware/auth.js';
+import { authMiddleware } from '../middleware/auth.js';
 import { authRateLimit } from '../middleware/rate-limit.js';
 import { createSession, invalidateSession } from '../middleware/session.js';
 import { redis } from '../queue/connection.js';
 
 const AUTH_FAILED_ERROR = { error: 'AUTH_FAILED' } as const;
 const SRP_STATE_TTL_SECONDS = 30;
+const VERIFICATION_TOKEN_EXPIRY_HOURS = 24;
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -78,7 +81,37 @@ interface StoredSrpState {
   serverSecretEphemeral: string;
 }
 
-export const authRouter = new Hono();
+// ---------------------------------------------------------------------------
+// Email verification helpers
+// ---------------------------------------------------------------------------
+
+const isVerificationRequired = (): boolean => process.env.REQUIRE_EMAIL_VERIFICATION !== 'false';
+
+const generateVerificationToken = (): string => randomBytes(32).toString('hex');
+
+const generateVerificationExpiry = (): Date => {
+  const expiry = new Date();
+  expiry.setHours(expiry.getHours() + VERIFICATION_TOKEN_EXPIRY_HOURS);
+  return expiry;
+};
+
+/**
+ * Send a verification email. In development mode (no SMTP configured),
+ * logs the verification link to the console.
+ *
+ * TODO: Wire to production SMTP transport (e.g. nodemailer) when available.
+ */
+const sendVerificationEmail = (email: string, token: string): void => {
+  const baseUrl = process.env.APP_URL ?? 'http://localhost:3000';
+  const verifyUrl = `${baseUrl}/auth/verify-email?token=${token}`;
+
+  // In production, this should send a real email via SMTP.
+  // For now, log the link for development/testing.
+  console.log(`[EMAIL VERIFICATION] To: ${email}`);
+  console.log(`[EMAIL VERIFICATION] Verify your email: ${verifyUrl}`);
+};
+
+export const authRouter = new Hono<{ Variables: AuthVariables }>();
 
 authRouter.post('/auth/register', authRateLimit, async (c) => {
   const payload = await parseBody(c, registerSchema);
@@ -104,18 +137,31 @@ authRouter.post('/auth/register', authRateLimit, async (c) => {
     return c.json({ error: 'INVALID_BODY' }, 400);
   }
 
+  // If verification is disabled, mark as verified immediately
+  const skipVerification = !isVerificationRequired();
+  const verificationToken = skipVerification ? null : generateVerificationToken();
+  const verificationExpiry = skipVerification ? null : generateVerificationExpiry();
+
   const inserted = await db
     .insert(users)
     .values({
       email,
       srpSalt: salt,
       srpVerifier: verifier,
+      emailVerified: skipVerification,
+      emailVerificationToken: verificationToken,
+      emailVerificationExpiry: verificationExpiry,
     })
     .returning({ id: users.id });
 
   const user = inserted[0];
   if (!user) {
     return c.json({ error: 'REGISTER_FAILED' }, 500);
+  }
+
+  // Send verification email if required
+  if (verificationToken) {
+    sendVerificationEmail(email, verificationToken);
   }
 
   return c.json({ userId: user.id }, 200);
@@ -201,10 +247,18 @@ authRouter.post('/auth/login/finish', authRateLimit, async (c) => {
     await redis.del(stateKey);
     const session = await createSession(state.userId);
 
+    // Fetch email verification status for the client
+    const userRows = await db
+      .select({ emailVerified: users.emailVerified })
+      .from(users)
+      .where(eq(users.id, state.userId));
+    const emailVerified = userRows[0]?.emailVerified ?? false;
+
     return c.json(
       {
         sessionToken: session.token,
         serverProof: serverSession.proof,
+        emailVerified,
       },
       200,
     );
@@ -227,4 +281,132 @@ authRouter.post('/auth/logout', async (c) => {
 
   await invalidateSession(token);
   return c.body(null, 204);
+});
+
+// ---------------------------------------------------------------------------
+// GET /auth/verify-email?token= — verify email address via token
+// ---------------------------------------------------------------------------
+
+authRouter.get('/auth/verify-email', async (c) => {
+  const token = c.req.query('token');
+
+  if (!token || typeof token !== 'string' || token.length === 0) {
+    return c.json({ error: 'INVALID_TOKEN' }, 400);
+  }
+
+  const now = new Date();
+
+  const matchingUsers = await db
+    .select({ id: users.id, emailVerified: users.emailVerified })
+    .from(users)
+    .where(and(eq(users.emailVerificationToken, token), gt(users.emailVerificationExpiry, now)));
+
+  const user = matchingUsers[0];
+
+  if (!user) {
+    return c.json({ error: 'INVALID_OR_EXPIRED_TOKEN' }, 400);
+  }
+
+  if (user.emailVerified) {
+    return c.json({ message: 'Email already verified' }, 200);
+  }
+
+  await db
+    .update(users)
+    .set({
+      emailVerified: true,
+      emailVerificationToken: null,
+      emailVerificationExpiry: null,
+    })
+    .where(eq(users.id, user.id));
+
+  return c.json({ message: 'Email verified successfully' }, 200);
+});
+
+// ---------------------------------------------------------------------------
+// POST /auth/resend-verification — resend verification email (requires auth)
+// ---------------------------------------------------------------------------
+
+authRouter.post('/auth/resend-verification', authMiddleware, async (c) => {
+  const userId = c.get('userId');
+
+  const userRows = await db
+    .select({
+      email: users.email,
+      emailVerified: users.emailVerified,
+    })
+    .from(users)
+    .where(eq(users.id, userId));
+
+  const user = userRows[0];
+
+  if (!user) {
+    return c.json({ error: 'USER_NOT_FOUND' }, 404);
+  }
+
+  if (user.emailVerified) {
+    return c.json({ message: 'Email already verified' }, 200);
+  }
+
+  if (!isVerificationRequired()) {
+    // Verification disabled — auto-verify
+    await db
+      .update(users)
+      .set({
+        emailVerified: true,
+        emailVerificationToken: null,
+        emailVerificationExpiry: null,
+      })
+      .where(eq(users.id, userId));
+    return c.json({ message: 'Email verified (verification disabled)' }, 200);
+  }
+
+  const newToken = generateVerificationToken();
+  const newExpiry = generateVerificationExpiry();
+
+  await db
+    .update(users)
+    .set({
+      emailVerificationToken: newToken,
+      emailVerificationExpiry: newExpiry,
+    })
+    .where(eq(users.id, userId));
+
+  sendVerificationEmail(user.email, newToken);
+
+  return c.json({ message: 'Verification email sent' }, 200);
+});
+
+// ---------------------------------------------------------------------------
+// GET /auth/me — return current user info (requires auth)
+// ---------------------------------------------------------------------------
+
+authRouter.get('/auth/me', authMiddleware, async (c) => {
+  const userId = c.get('userId');
+
+  const userRows = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      emailVerified: users.emailVerified,
+      isAdmin: users.isAdmin,
+    })
+    .from(users)
+    .where(eq(users.id, userId));
+
+  const user = userRows[0];
+
+  if (!user) {
+    return c.json({ error: 'USER_NOT_FOUND' }, 404);
+  }
+
+  return c.json(
+    {
+      id: user.id,
+      email: user.email,
+      emailVerified: user.emailVerified,
+      isAdmin: user.isAdmin,
+    },
+    200,
+  );
 });

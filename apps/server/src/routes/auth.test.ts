@@ -55,6 +55,8 @@ const authRateLimitMock = async (_c: unknown, next: () => Promise<void>): Promis
   await next();
 };
 
+const updateSetWhereMock = mock(async (): Promise<void> => {});
+
 mock.module('@enclave/db', () => ({
   db: {
     select: () => ({
@@ -67,12 +69,21 @@ mock.module('@enclave/db', () => ({
         returning: insertReturningMock,
       }),
     }),
+    update: () => ({
+      set: () => ({
+        where: updateSetWhereMock,
+      }),
+    }),
   },
   users: {
     id: 'id-column',
     email: 'email-column',
     srpSalt: 'srp-salt-column',
     srpVerifier: 'srp-verifier-column',
+    emailVerified: 'email-verified-column',
+    emailVerificationToken: 'email-verification-token-column',
+    emailVerificationExpiry: 'email-verification-expiry-column',
+    isAdmin: 'is-admin-column',
   },
   keypairs: {
     userId: 'keypairs-user-id-column',
@@ -83,7 +94,9 @@ mock.module('@enclave/db', () => ({
 }));
 
 mock.module('drizzle-orm', () => ({
+  and: (...conditions: unknown[]) => ({ type: 'and', conditions }),
   eq: (column: string, value: string) => ({ column, value }),
+  gt: (column: string, value: unknown) => ({ type: 'gt', column, value }),
 }));
 
 mock.module('@enclave/crypto', () => ({
@@ -102,6 +115,18 @@ mock.module('../queue/connection.js', () => ({
 mock.module('../middleware/session.js', () => ({
   createSession: createSessionMock,
   invalidateSession: invalidateSessionMock,
+}));
+
+const authMiddlewareMock = async (
+  c: { set: (key: string, value: string) => void },
+  next: () => Promise<void>,
+): Promise<void> => {
+  c.set('userId', 'user-123');
+  await next();
+};
+
+mock.module('../middleware/auth.js', () => ({
+  authMiddleware: authMiddlewareMock,
 }));
 
 mock.module('../middleware/rate-limit.js', () => ({
@@ -252,6 +277,7 @@ describe('authRouter', () => {
     expect(await response.json()).toEqual({
       sessionToken: 'session-user-login',
       serverProof: 'server-proof',
+      emailVerified: false,
     });
     expect(createSessionMock).toHaveBeenCalledWith('user-login');
     expect(redisDelMock).toHaveBeenCalledWith('srp:alice@enclave.test');

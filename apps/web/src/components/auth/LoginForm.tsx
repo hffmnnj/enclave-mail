@@ -29,6 +29,7 @@ interface LoginStartResponse {
 interface LoginFinishResponse {
   sessionToken: string;
   serverProof: string;
+  emailVerified: boolean;
 }
 
 interface KeysExportResponse {
@@ -94,7 +95,7 @@ const LoginForm = () => {
         throw new Error('AUTH_FAILED');
       }
 
-      const { sessionToken } = (await finishResp.json()) as LoginFinishResponse;
+      const { sessionToken, emailVerified } = (await finishResp.json()) as LoginFinishResponse;
 
       setStatus('unlocking-keys');
 
@@ -103,6 +104,7 @@ const LoginForm = () => {
         localStorage.setItem('enclave:sessionToken', sessionToken);
         localStorage.setItem('enclave:userEmail', email);
         localStorage.setItem('enclave:srpSalt', salt);
+        localStorage.setItem('enclave:emailVerified', String(emailVerified));
       } catch {
         // Storage may be unavailable
       }
