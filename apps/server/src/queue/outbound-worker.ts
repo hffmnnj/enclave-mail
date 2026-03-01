@@ -4,13 +4,21 @@ import net from 'node:net';
 import tls from 'node:tls';
 
 import { resolveMx } from 'node:dns/promises';
-import { db, keypairs, mailboxes, messageBodies, messages, users } from '@enclave/db';
+import {
+  attachmentBlobs,
+  db,
+  keypairs,
+  mailboxes,
+  messageBodies,
+  messages,
+  users,
+} from '@enclave/db';
 import { type OutboundMailJob, QUEUE_NAMES } from '@enclave/types';
 import type { Job, Worker } from 'bullmq';
 import { Worker as BullWorker } from 'bullmq';
 import { and, eq, sql } from 'drizzle-orm';
 
-import { decryptMimeBody } from '../lib/mime-encryption.js';
+import { decryptBlob, decryptMimeBody } from '../lib/mime-encryption.js';
 import { loadDkimPrivateKey, signMessage } from '../smtp/dkim.js';
 import { createRecipientEncryptor } from '../smtp/encrypt.js';
 import { OUTBOUND_RETRY_DELAYS_MS } from '../smtp/outbound.js';
@@ -579,6 +587,65 @@ function createDefaultDeps(overrides: Partial<OutboundWorkerDeps>): OutboundWork
   };
 }
 
+interface DecryptedAttachment {
+  filename: string;
+  mimeType: string;
+  data: Buffer;
+}
+
+async function fetchAndDecryptAttachments(attachmentIds: string[]): Promise<DecryptedAttachment[]> {
+  const results: DecryptedAttachment[] = [];
+
+  for (const id of attachmentIds) {
+    const rows = await db
+      .select({
+        filename: attachmentBlobs.filename,
+        mimeType: attachmentBlobs.mimeType,
+        encryptedBlob: attachmentBlobs.encryptedBlob,
+        nonce: attachmentBlobs.nonce,
+      })
+      .from(attachmentBlobs)
+      .where(eq(attachmentBlobs.id, id));
+
+    const row = rows[0];
+    if (!row) continue;
+
+    const decrypted = decryptBlob(Buffer.from(row.encryptedBlob), row.nonce);
+    results.push({
+      filename: row.filename,
+      mimeType: row.mimeType,
+      data: decrypted,
+    });
+  }
+
+  return results;
+}
+
+function assembleMultipartMime(htmlBody: string, attachments: DecryptedAttachment[]): string {
+  const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const parts: string[] = [];
+
+  // HTML body part
+  const bodyBase64 = Buffer.from(htmlBody, 'utf8').toString('base64');
+  parts.push(
+    `--${boundary}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${bodyBase64}\r\n`,
+  );
+
+  // Attachment parts
+  for (const att of attachments) {
+    const safeFilename = att.filename.replace(/"/g, '\\"');
+    const attBase64 = att.data.toString('base64');
+    parts.push(
+      `--${boundary}\r\nContent-Type: ${att.mimeType}; name="${safeFilename}"\r\nContent-Disposition: attachment; filename="${safeFilename}"\r\nContent-Transfer-Encoding: base64\r\n\r\n${attBase64}\r\n`,
+    );
+  }
+
+  // Closing boundary
+  parts.push(`--${boundary}--\r\n`);
+
+  return `Content-Type: multipart/mixed; boundary="${boundary}"\r\nMIME-Version: 1.0\r\n\r\n${parts.join('')}`;
+}
+
 export async function processOutboundMailJob(
   job: OutboundJobContext,
   overrideDeps: Partial<OutboundWorkerDeps> = {},
@@ -593,6 +660,16 @@ export async function processOutboundMailJob(
     }
 
     mimeBody = decryptMimeBody(job.data.encryptedMimeBody, job.data.mimeBodyNonce);
+
+    // If the message has attachments, assemble multipart/mixed MIME
+    const attachmentIds = job.data.attachmentIds;
+    if (attachmentIds && attachmentIds.length > 0) {
+      const attachments = await fetchAndDecryptAttachments(attachmentIds);
+      if (attachments.length > 0) {
+        mimeBody = assembleMultipartMime(mimeBody, attachments);
+      }
+    }
+
     const dkimDomain = parseAddressDomain(job.data.from);
     const privateKeyPem = await deps.loadDkimPrivateKeyFn();
     const signedMime = await deps.signMessageFn(

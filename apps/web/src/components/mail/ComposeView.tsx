@@ -1,5 +1,11 @@
 import { Button, Input, Separator, cn } from '@enclave/ui';
-import { Cancel01Icon, Delete01Icon, LockIcon, MailSend01Icon } from '@hugeicons/core-free-icons';
+import {
+  Attachment01Icon,
+  Cancel01Icon,
+  Delete01Icon,
+  LockIcon,
+  MailSend01Icon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import type { IconSvgElement } from '@hugeicons/react';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -77,6 +83,92 @@ const DraftStatusIndicator = ({ status }: { status: DraftStatus }) => {
 };
 
 // ---------------------------------------------------------------------------
+// Attachment types and helpers
+// ---------------------------------------------------------------------------
+
+interface AttachmentItem {
+  id: string;
+  filename: string;
+  size: number;
+  uploading?: boolean | undefined;
+}
+
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB per file
+const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50 MB total
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+/** Encode a Uint8Array to a base64 string. */
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
+};
+
+const getAuthToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem('enclave:sessionToken');
+  } catch {
+    return null;
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Attachment list component
+// ---------------------------------------------------------------------------
+
+interface AttachmentListProps {
+  attachments: AttachmentItem[];
+  onRemove: (id: string) => void;
+}
+
+const AttachmentList = ({ attachments, onRemove }: AttachmentListProps) => {
+  if (attachments.length === 0) return null;
+
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex items-center gap-1.5 text-ui-xs text-text-secondary">
+        <HugeiconsIcon icon={Attachment01Icon as IconSvgElement} size={12} strokeWidth={1.5} />
+        <span>
+          {String(attachments.length)} attachment{attachments.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      {attachments.map((att) => (
+        <div
+          key={att.id}
+          className="flex items-center gap-2 rounded-sm border border-border bg-surface/50 px-2 py-1"
+        >
+          <span className="min-w-0 flex-1 truncate text-ui-xs text-text-primary">
+            {att.filename}
+          </span>
+          <span className="shrink-0 text-ui-xs text-text-secondary">
+            {att.uploading ? 'Uploading...' : formatFileSize(att.size)}
+          </span>
+          {!att.uploading && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 shrink-0"
+              onClick={() => onRemove(att.id)}
+              aria-label={`Remove ${att.filename}`}
+            >
+              <HugeiconsIcon icon={Cancel01Icon as IconSvgElement} size={10} strokeWidth={1.5} />
+            </Button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Inner compose view (requires QueryClientProvider ancestor)
 // ---------------------------------------------------------------------------
 
@@ -103,6 +195,11 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
     return `<br/><blockquote style="border-left:2px solid #ccc;padding-left:8px;margin:8px 0;color:#666">${replyTo.quotedBody}</blockquote>`;
   });
   const [draftStatus, setDraftStatus] = React.useState<DraftStatus>('idle');
+
+  // Attachment state
+  const [attachments, setAttachments] = React.useState<AttachmentItem[]>([]);
+  const [attachmentError, setAttachmentError] = React.useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Encryption state
   const hasSessionKey = React.useMemo(() => !!getSessionKey(), []);
@@ -153,10 +250,136 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
     };
   }, [contentFingerprint, draftMutation, toRecipients, ccRecipients, subject, htmlBody]);
 
+  // -----------------------------------------------------------------------
+  // Attachment handlers
+  // -----------------------------------------------------------------------
+
+  const handleAttachClick = React.useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileSelected = React.useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+
+      setAttachmentError(null);
+
+      for (const file of Array.from(files)) {
+        if (file.size > MAX_FILE_SIZE) {
+          setAttachmentError(`"${file.name}" exceeds 25 MB limit`);
+          continue;
+        }
+
+        const totalSize = attachments.reduce((sum, a) => sum + a.size, 0);
+        if (totalSize + file.size > MAX_TOTAL_SIZE) {
+          setAttachmentError('Total attachments exceed 50 MB limit');
+          break;
+        }
+
+        // Add a placeholder while uploading
+        const tempId = `uploading-${Date.now()}-${file.name}`;
+        setAttachments((prev) => [
+          ...prev,
+          { id: tempId, filename: file.name, size: file.size, uploading: true },
+        ]);
+
+        try {
+          // Read file bytes and base64-encode for upload
+          const arrayBuffer = await file.arrayBuffer();
+          const fileBytes = new Uint8Array(arrayBuffer);
+          const fileContent = bytesToBase64(fileBytes);
+
+          // We need a messageId to attach to — use the draft's messageId
+          // If no draft exists yet, save one first
+          let messageId = draftMutation.draftId;
+          if (!messageId) {
+            const draftResult = await new Promise<{ id: string }>((resolve, reject) => {
+              draftMutation.mutate(
+                {
+                  to: toRecipients.length > 0 ? toRecipients : undefined,
+                  subject: subject || 'Draft',
+                },
+                { onSuccess: resolve, onError: reject },
+              );
+            });
+            messageId = draftResult.id;
+          }
+
+          // Upload to server (server encrypts at rest with AES-256-GCM)
+          const token = getAuthToken();
+          const res = await fetch('/api/compose/attachment', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              messageId,
+              filename: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              fileContent,
+            }),
+          });
+
+          if (!res.ok) {
+            const errBody = (await res.json().catch(() => null)) as {
+              error?: string;
+            } | null;
+            throw new Error(errBody?.error ?? `Upload failed: ${String(res.status)}`);
+          }
+
+          const json = (await res.json()) as {
+            data: { id: string; filename: string; size: number };
+          };
+
+          // Replace placeholder with real attachment
+          setAttachments((prev) =>
+            prev.map((a) =>
+              a.id === tempId
+                ? { id: json.data.id, filename: json.data.filename, size: json.data.size }
+                : a,
+            ),
+          );
+        } catch (err) {
+          // Remove placeholder on failure
+          setAttachments((prev) => prev.filter((a) => a.id !== tempId));
+          setAttachmentError(err instanceof Error ? err.message : 'Failed to upload attachment');
+        }
+      }
+
+      // Reset file input so the same file can be re-selected
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    },
+    [attachments, draftMutation, toRecipients, subject],
+  );
+
+  const handleRemoveAttachment = React.useCallback(async (attachmentId: string) => {
+    const token = getAuthToken();
+    try {
+      await fetch(`/api/compose/attachment/${attachmentId}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    } catch {
+      // Best-effort removal from server
+    }
+    setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Send handler
+  // -----------------------------------------------------------------------
+
   const handleSend = React.useCallback(() => {
     if (!hasSessionKey || sendMutation.isPending) return;
     if (toRecipients.length === 0) return;
     if (!subject.trim()) return;
+
+    // Collect non-uploading attachment IDs
+    const attachmentIds = attachments.filter((a) => !a.uploading).map((a) => a.id);
 
     sendMutation.mutate(
       {
@@ -165,6 +388,7 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
         bcc: bccRecipients.length > 0 ? bccRecipients : undefined,
         subject,
         htmlBody: htmlBody || '<p></p>',
+        attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       },
       {
         onSuccess: () => {
@@ -173,7 +397,16 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
         },
       },
     );
-  }, [hasSessionKey, sendMutation, toRecipients, ccRecipients, bccRecipients, subject, htmlBody]);
+  }, [
+    hasSessionKey,
+    sendMutation,
+    toRecipients,
+    ccRecipients,
+    bccRecipients,
+    subject,
+    htmlBody,
+    attachments,
+  ]);
 
   // Ctrl+Enter to send — use ref to avoid stale closure
   const handleSendRef = React.useRef(handleSend);
@@ -196,14 +429,25 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
     window.location.href = '/mail/inbox';
   }, []);
 
+  const isUploading = attachments.some((a) => a.uploading);
   const canSend =
     hasSessionKey &&
     toRecipients.length > 0 &&
     subject.trim().length > 0 &&
-    !sendMutation.isPending;
+    !sendMutation.isPending &&
+    !isUploading;
 
   return (
     <div className="flex h-full flex-col max-md:mobile-fullscreen max-md:bg-background">
+      {/* Hidden file input for attachments */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        tabIndex={-1}
+        onChange={handleFileSelected}
+      />
       {/* Header bar — taller on mobile with close button */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2 max-md:py-2.5">
         {/* Close / Discard button — 44px touch target on mobile */}
@@ -289,8 +533,15 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
               onChange={setHtmlBody}
               placeholder="Write your message..."
               autoFocus={!replyTo}
+              onAttach={handleAttachClick}
             />
           </div>
+
+          {/* Attachment list */}
+          <AttachmentList attachments={attachments} onRemove={handleRemoveAttachment} />
+
+          {/* Attachment error */}
+          {attachmentError && <div className="mt-1 text-ui-xs text-danger">{attachmentError}</div>}
         </div>
       </div>
 

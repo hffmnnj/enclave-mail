@@ -136,6 +136,19 @@ CREATE TABLE IF NOT EXISTS prekeys (
 );
 CREATE INDEX IF NOT EXISTS prekeys_user_type_used_created_idx ON prekeys (user_id, key_type, is_used, created_at);
 
+-- attachment_blobs
+CREATE TABLE IF NOT EXISTS attachment_blobs (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id      UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  filename        TEXT NOT NULL,
+  mime_type       TEXT NOT NULL DEFAULT 'application/octet-stream',
+  encrypted_blob  BYTEA NOT NULL,
+  size            INTEGER NOT NULL,
+  nonce           TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS attachment_blobs_message_id_idx ON attachment_blobs (message_id);
+
 -- system_config
 CREATE TABLE IF NOT EXISTS system_config (
   key         TEXT PRIMARY KEY,

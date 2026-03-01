@@ -44,4 +44,6 @@ CREATE TABLE IF NOT EXISTS message_bodies (id UUID PRIMARY KEY DEFAULT gen_rando
 CREATE UNIQUE INDEX IF NOT EXISTS message_bodies_message_id_unique_idx ON message_bodies (message_id);
 CREATE TABLE IF NOT EXISTS prekeys (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, key_id INTEGER NOT NULL, public_key BYTEA NOT NULL, signature BYTEA, key_type prekey_type NOT NULL, is_used BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE INDEX IF NOT EXISTS prekeys_user_type_used_created_idx ON prekeys (user_id, key_type, is_used, created_at);
+CREATE TABLE IF NOT EXISTS attachment_blobs (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE, filename TEXT NOT NULL, mime_type TEXT NOT NULL DEFAULT 'application/octet-stream', encrypted_blob BYTEA NOT NULL, size INTEGER NOT NULL, nonce TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE INDEX IF NOT EXISTS attachment_blobs_message_id_idx ON attachment_blobs (message_id);
 CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());

@@ -96,6 +96,15 @@ mock.module('@enclave/db', () => ({
     encryptionMetadata: 'encryption_metadata',
   },
   users: { id: 'id', email: 'email', emailVerified: 'email_verified', isAdmin: 'is_admin' },
+  attachmentBlobs: {
+    id: 'id',
+    messageId: 'message_id',
+    filename: 'filename',
+    mimeType: 'mime_type',
+    encryptedBlob: 'encrypted_blob',
+    size: 'size',
+    nonce: 'nonce',
+  },
 }));
 
 mock.module('drizzle-orm', () => ({

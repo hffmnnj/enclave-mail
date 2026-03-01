@@ -29,4 +29,5 @@ export interface OutboundMailJob {
   dkimSign: boolean;
   encryptedMimeBody: string;
   mimeBodyNonce: string;
+  attachmentIds?: string[] | undefined;
 }

@@ -50,9 +50,10 @@ const ToolbarButton = ({ icon, label, isActive, disabled, onClick }: ToolbarButt
 
 interface ToolbarProps {
   editor: Editor | null;
+  onAttach?: (() => void) | undefined;
 }
 
-const Toolbar = ({ editor }: ToolbarProps) => {
+const Toolbar = ({ editor, onAttach }: ToolbarProps) => {
   if (!editor) return null;
 
   const handleLink = React.useCallback(() => {
@@ -116,11 +117,8 @@ const Toolbar = ({ editor }: ToolbarProps) => {
 
       <ToolbarButton
         icon={Attachment01Icon as IconSvgElement}
-        label="Attach file (coming soon)"
-        disabled
-        onClick={() => {
-          // Attachment stub — no actual upload for this task
-        }}
+        label="Attach file"
+        onClick={() => onAttach?.()}
       />
     </div>
   );
@@ -135,9 +133,16 @@ interface TipTapEditorProps {
   onChange: (html: string) => void;
   placeholder?: string | undefined;
   autoFocus?: boolean | undefined;
+  onAttach?: (() => void) | undefined;
 }
 
-const TipTapEditor = ({ content, onChange, placeholder, autoFocus }: TipTapEditorProps) => {
+const TipTapEditor = ({
+  content,
+  onChange,
+  placeholder,
+  autoFocus,
+  onAttach,
+}: TipTapEditorProps) => {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -166,7 +171,7 @@ const TipTapEditor = ({ content, onChange, placeholder, autoFocus }: TipTapEdito
 
   return (
     <div className="flex flex-col rounded-sm border border-border">
-      <Toolbar editor={editor} />
+      <Toolbar editor={editor} onAttach={onAttach} />
       <EditorContent
         editor={editor}
         className={cn(

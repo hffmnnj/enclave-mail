@@ -26,6 +26,7 @@ interface SendPayload {
     recipientKeyFingerprints?: string[] | undefined;
     version?: number | undefined;
   };
+  attachmentIds?: string[] | undefined;
 }
 
 interface SendResult {
@@ -189,6 +190,7 @@ interface ComposeInput {
   bcc?: string[] | undefined;
   subject: string;
   htmlBody: string;
+  attachmentIds?: string[] | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +241,7 @@ const useEncryptSend = () => {
           algorithm: 'chacha20-poly1305',
           version: 1,
         },
+        attachmentIds: input.attachmentIds?.length ? input.attachmentIds : undefined,
       };
 
       const res = await api.compose.send.$post(

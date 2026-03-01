@@ -57,6 +57,50 @@ export const encryptMimeBody = (
   };
 };
 
+/** Encrypt raw binary data at rest using the server-side AES-256-GCM key. */
+export const encryptBlob = (data: Buffer): { encryptedBlob: Buffer; nonce: string } => {
+  const key = getMimeEncryptionKey();
+  if (key.length !== KEY_LENGTH) {
+    throw new Error('MIME encryption key must be 32 bytes.');
+  }
+
+  const iv = randomBytes(IV_LENGTH);
+  const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  const combined = Buffer.concat([encrypted, authTag]);
+
+  return {
+    encryptedBlob: combined,
+    nonce: iv.toString('base64'),
+  };
+};
+
+/** Decrypt raw binary data encrypted with the server-side AES-256-GCM key. */
+export const decryptBlob = (encryptedBlob: Buffer, nonce: string): Buffer => {
+  const key = getMimeEncryptionKey();
+  if (key.length !== KEY_LENGTH) {
+    throw new Error('MIME encryption key must be 32 bytes.');
+  }
+
+  const iv = Buffer.from(nonce, 'base64');
+  if (iv.length !== IV_LENGTH) {
+    throw new Error('Invalid blob nonce.');
+  }
+
+  if (encryptedBlob.length <= AUTH_TAG_LENGTH) {
+    throw new Error('Invalid encrypted blob payload.');
+  }
+
+  const authTag = encryptedBlob.subarray(encryptedBlob.length - AUTH_TAG_LENGTH);
+  const ciphertext = encryptedBlob.subarray(0, encryptedBlob.length - AUTH_TAG_LENGTH);
+
+  const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAuthTag(authTag);
+
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+};
+
 export const decryptMimeBody = (encryptedMimeBody: string, mimeBodyNonce: string): string => {
   const key = getMimeEncryptionKey();
   if (key.length !== KEY_LENGTH) {
