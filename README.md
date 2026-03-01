@@ -94,8 +94,8 @@ SMTP_DOMAIN=your-domain.com bun run scripts/generate-dkim-keys.ts
 # 4. Start all services
 docker compose up -d
 
-# 5. Run database migrations
-docker compose exec server bun run src/db/migrate.ts
+# 5. Run database migrations (or let the server apply them automatically on startup)
+docker compose exec server bun run db:migrate
 
 # 6. Open webmail and complete onboarding
 open https://your-domain.com
@@ -367,6 +367,36 @@ Enclave Mail provides **zero-knowledge storage** for inbound email: messages are
 **Future roadmap:**
 - **Double Ratchet + X3DH** — A full Signal-style ratcheting protocol for Enclave-to-Enclave messaging is planned for a future release. This would provide forward secrecy and break-in recovery for conversations between Enclave Mail users.
 - **Client-assembled MIME** — Moving MIME assembly to the browser would eliminate the server's transient access to outbound message content entirely.
+
+---
+
+## Database Migrations
+
+Enclave Mail uses a single idempotent `setup.sql` that creates all tables with `IF NOT EXISTS`. Migrations are applied automatically on server startup.
+
+### Applying Migrations Manually
+
+```bash
+bun run db:migrate
+```
+
+### Docker Compose
+
+```bash
+docker compose run --rm server bun run db:migrate
+```
+
+### Upgrading
+
+1. Pull the latest changes: `git pull`
+2. Apply migrations: `bun run db:migrate` (or let the server apply them on next restart)
+3. Restart the server: `docker compose restart server`
+
+### Troubleshooting
+
+- **"column already exists"**: Safe to ignore — all migrations use `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`.
+- **"relation does not exist"**: Check `DATABASE_URL` is set correctly and the database is reachable.
+- **Migration fails on startup**: The server exits non-zero. Check logs for the specific SQL error.
 
 ---
 
