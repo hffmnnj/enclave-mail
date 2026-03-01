@@ -6,11 +6,13 @@ import { authMiddleware } from '../middleware/auth.js';
 import { accountRouter } from '../routes/account.js';
 import { authRouter } from '../routes/auth.js';
 import { setupRouter } from '../routes/setup.js';
+import { adminRouter } from './routes/admin.js';
 import { composeRouter } from './routes/compose.js';
 import { cspRouter } from './routes/csp.js';
 import { keysRouter } from './routes/keys.js';
 import { mailboxRouter } from './routes/mailbox.js';
 import { messageRouter } from './routes/messages.js';
+import { pushRouter } from './routes/push.js';
 import { settingsRouter } from './routes/settings.js';
 import type { ApiError } from './types.js';
 
@@ -114,6 +116,14 @@ apiApp.route('/', settingsRouter);
 
 // --- Key management routes ---
 apiApp.route('/', keysRouter);
+
+// --- Push notification routes ---
+// GET /api/push/vapid-key is public; subscribe/unsubscribe require auth.
+apiApp.route('/', pushRouter);
+
+// --- Admin routes ---
+// All admin routes require auth + isAdmin (enforced within the router).
+apiApp.route('/', adminRouter);
 
 // --- Setup routes ---
 // Public: GET /setup/status, GET /setup/domain, GET /setup/dns-records,

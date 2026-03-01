@@ -39,6 +39,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FAL
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expiry TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Ensure every user has an Archive mailbox (idempotent backfill for existing users)
 INSERT INTO mailboxes (user_id, name, type, uid_validity, uid_next)
@@ -148,6 +149,17 @@ CREATE TABLE IF NOT EXISTS attachment_blobs (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS attachment_blobs_message_id_idx ON attachment_blobs (message_id);
+
+-- push_subscriptions
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint    TEXT NOT NULL UNIQUE,
+  p256dh      TEXT NOT NULL,
+  auth        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_user_id_idx ON push_subscriptions (user_id);
 
 -- system_config
 CREATE TABLE IF NOT EXISTS system_config (

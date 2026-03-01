@@ -29,6 +29,7 @@ export const users = pgTable('users', {
     withTimezone: true,
     mode: 'date',
   }),
+  disabled: boolean('disabled').notNull().default(false),
   // NOTE: Migration required — run `bun run db:generate` then `bun run db:migrate`
   // to add this column to existing databases.
   preferences: jsonb('preferences')

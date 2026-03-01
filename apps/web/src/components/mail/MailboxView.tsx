@@ -18,6 +18,7 @@ import { getQueryClient } from '../../lib/query-client.js';
 import { SessionGate } from '../auth/SessionGate.js';
 import { UnverifiedBanner } from '../auth/UnverifiedBanner.js';
 import { InboxView } from './InboxView.js';
+import { PushPermissionPrompt } from './PushPermissionPrompt.js';
 
 interface MailboxViewProps {
   /** The mailbox type slug from the URL (e.g. "inbox", "sent", "drafts"). */
@@ -59,6 +60,7 @@ const MailboxViewInner = ({ mailboxType }: MailboxViewProps): React.ReactElement
   return (
     <>
       <UnverifiedBanner />
+      <PushPermissionPrompt />
       <InboxView mailboxId={mailbox.id} />
     </>
   );

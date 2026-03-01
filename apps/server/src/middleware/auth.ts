@@ -9,11 +9,17 @@ export type AuthVariables = {
   isAdmin?: boolean;
 };
 
+export type CheckDisabledFn = (userId: string) => Promise<{ disabled: boolean } | null>;
+
 /**
  * Hono middleware that validates a Bearer token and injects `userId`
  * into context. Requests without a valid token receive a generic 401.
+ * Accounts flagged as disabled by an admin receive a 401 ACCOUNT_DISABLED.
  */
-export const createAuthMiddleware = (validateSessionFn: typeof validateSession) =>
+export const createAuthMiddleware = (
+  validateSessionFn: typeof validateSession,
+  checkDisabledFn?: CheckDisabledFn,
+) =>
   createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
     const authHeader = c.req.header('Authorization');
 
@@ -33,11 +39,30 @@ export const createAuthMiddleware = (validateSessionFn: typeof validateSession) 
       return c.json({ error: 'UNAUTHORIZED' }, 401);
     }
 
+    // Check if the user account has been disabled by an admin
+    if (checkDisabledFn) {
+      const user = await checkDisabledFn(session.userId);
+      if (user?.disabled) {
+        return c.json(
+          { error: 'ACCOUNT_DISABLED', message: 'Your account has been disabled' },
+          401,
+        );
+      }
+    }
+
     c.set('userId', session.userId);
     await next();
   });
 
-export const authMiddleware = createAuthMiddleware(validateSession);
+const defaultCheckDisabled: CheckDisabledFn = async (userId) => {
+  const rows = await db
+    .select({ disabled: users.disabled })
+    .from(users)
+    .where(eq(users.id, userId));
+  return rows[0] ?? null;
+};
+
+export const authMiddleware = createAuthMiddleware(validateSession, defaultCheckDisabled);
 
 // ---------------------------------------------------------------------------
 // Key export enforcement

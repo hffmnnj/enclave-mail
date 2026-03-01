@@ -7,3 +7,4 @@ export * from './message-bodies.ts';
 export * from './prekeys.ts';
 export * from './system-config.ts';
 export * from './attachments.ts';
+export * from './push-subscriptions.ts';

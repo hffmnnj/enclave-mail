@@ -8,6 +8,7 @@ import { Worker as BullWorker } from 'bullmq';
 import { and, eq, sql } from 'drizzle-orm';
 
 import { publishMailboxUpdate } from '../imap/notify.js';
+import { dispatchPushToUser } from '../lib/vapid.js';
 import { createRecipientEncryptor } from '../smtp/encrypt.js';
 import { extractMailMetadata, parseRawEmail } from '../smtp/inbound.js';
 import { type VerificationResult, verifyMessage } from '../smtp/verification.js';
@@ -329,6 +330,19 @@ export async function processInboundMailJob(
 
       result.storedRecipients += 1;
       publishMailboxUpdate(inboxMailbox.id, storeResult.messageCount);
+
+      // Fire-and-forget push notification — never fail message delivery
+      dispatchPushToUser(user.id, {
+        title: 'New message',
+        body: `From: ${metadata.from}`,
+        url: '/mail/inbox',
+      }).catch((pushErr: unknown) => {
+        deps.logger.warn(
+          `Push notification failed for ${normalizedRecipient}: ${
+            pushErr instanceof Error ? pushErr.message : String(pushErr)
+          }`,
+        );
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       deps.logger.error(`Failed inbound delivery for recipient ${normalizedRecipient}: ${message}`);
