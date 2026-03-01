@@ -27,10 +27,6 @@ export interface OutboundMailJob {
   from: string;
   encryptedBodyRef: string;
   dkimSign: boolean;
-  /**
-   * Raw MIME message provided by the client for SMTP relay.
-   * When present the outbound worker can relay this directly
-   * instead of building MIME from the stored encrypted body.
-   */
-  mimeBody?: string;
+  encryptedMimeBody: string;
+  mimeBodyNonce: string;
 }

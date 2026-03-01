@@ -246,7 +246,9 @@ describe('composeRouter', () => {
       expect(jobData.from).toBe(USER_EMAIL);
       expect(jobData.to).toEqual(['bob@example.com', 'carol@example.com']);
       expect(jobData.dkimSign).toBe(true);
-      expect(jobData.mimeBody).toBe(validSendPayload.mimeBody);
+      expect(typeof jobData.encryptedMimeBody).toBe('string');
+      expect(typeof jobData.mimeBodyNonce).toBe('string');
+      expect(jobData.mimeBody).toBeUndefined();
     });
 
     test('rejects request with missing required fields', async () => {

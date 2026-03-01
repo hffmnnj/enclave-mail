@@ -2,14 +2,21 @@ import { describe, expect, mock, test } from 'bun:test';
 
 import type { OutboundMailJob } from '@enclave/types';
 
+import { encryptMimeBody } from '../lib/mime-encryption.js';
 import { processOutboundMailJob, sortMxRecordsByPriority } from '../queue/outbound-worker.js';
 import { enqueueOutboundMail } from './outbound.js';
+
+const { encryptedMimeBody, mimeBodyNonce } = encryptMimeBody(
+  'From: sender@example.com\r\nTo: alice@example.net\r\n\r\nHello world',
+);
 
 const BASE_JOB: OutboundMailJob = {
   from: 'sender@example.com',
   to: ['alice@example.net'],
   encryptedBodyRef: 'message-123',
   dkimSign: true,
+  encryptedMimeBody,
+  mimeBodyNonce,
 };
 
 describe('enqueueOutboundMail', () => {

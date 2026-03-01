@@ -136,8 +136,9 @@ const stringToBytes = (str: string): Uint8Array => {
  *
  * Returns the concatenation of [nonce (12B) | ciphertext + tag] as base64.
  *
- * Security invariant: encryption happens entirely client-side.
- * The server never receives plaintext content.
+ * Security model: subject/body encryption happens client-side.
+ * MIME plaintext still transits to the compose API for SMTP interoperability,
+ * then the server encrypts MIME at rest before queueing outbound delivery.
  */
 const encryptField = async (plaintext: Uint8Array, sessionKey: Uint8Array): Promise<string> => {
   // Dynamic import to keep the crypto bundle lazy-loaded
@@ -173,7 +174,8 @@ const getSessionKey = (): Uint8Array | undefined => {
 
 declare global {
   interface Window {
-    __enclave_session_key?: Uint8Array;
+    __enclave_session_key?: Uint8Array | undefined;
+    __enclave_x25519_private_key?: Uint8Array | undefined;
   }
 }
 
@@ -198,8 +200,9 @@ interface ComposeInput {
  * then POSTs to /compose/send. On success, invalidates the messages
  * query cache so the Sent mailbox reflects the new message.
  *
- * Security invariant: the server receives only ciphertext — never
- * plaintext subject or body content.
+ * Security model: subject/body are ciphertext at transit and rest.
+ * MIME plaintext is included only for SMTP delivery and is encrypted
+ * immediately server-side before BullMQ/Redis persistence.
  */
 const useEncryptSend = () => {
   const queryClient = useQueryClient();
@@ -229,6 +232,8 @@ const useEncryptSend = () => {
         bcc: input.bcc?.length ? input.bcc : undefined,
         encryptedSubject,
         encryptedBody,
+        // Required for outbound SMTP delivery; compose API encrypts this at rest
+        // before storing queue payloads in Redis.
         mimeBody: input.htmlBody,
         encryptionMetadata: {
           algorithm: 'chacha20-poly1305',

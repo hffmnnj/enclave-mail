@@ -4,13 +4,15 @@ import net from 'node:net';
 import tls from 'node:tls';
 
 import { resolveMx } from 'node:dns/promises';
-import { db, mailboxes, messageBodies, messages, users } from '@enclave/db';
+import { db, keypairs, mailboxes, messageBodies, messages, users } from '@enclave/db';
 import { type OutboundMailJob, QUEUE_NAMES } from '@enclave/types';
 import type { Job, Worker } from 'bullmq';
 import { Worker as BullWorker } from 'bullmq';
 import { and, eq, sql } from 'drizzle-orm';
 
+import { decryptMimeBody } from '../lib/mime-encryption.js';
 import { loadDkimPrivateKey, signMessage } from '../smtp/dkim.js';
+import { createRecipientEncryptor } from '../smtp/encrypt.js';
 import { OUTBOUND_RETRY_DELAYS_MS } from '../smtp/outbound.js';
 import { createRedisConnection } from './connection.js';
 import { createDeadLetterQueue } from './mail-queue.js';
@@ -124,26 +126,6 @@ function groupRecipientsByDomain(recipients: string[]): Map<string, string[]> {
   }
 
   return grouped;
-}
-
-function buildRawMimeMessage(message: LoadedOutboundMessage): string {
-  const subject = message.subjectEncrypted
-    ? message.subjectEncrypted.toString('utf8') || 'Encrypted message'
-    : 'Encrypted message';
-
-  const body = message.encryptedBody.toString('utf8');
-
-  return [
-    `From: ${message.fromAddress}`,
-    `To: ${message.toAddresses.join(', ')}`,
-    `Date: ${message.date.toUTCString()}`,
-    `Subject: ${subject}`,
-    `Message-ID: <${message.messageId}@${parseAddressDomain(message.fromAddress)}>`,
-    `Content-Type: ${message.contentType}`,
-    '',
-    body,
-    '',
-  ].join('\r\n');
 }
 
 function dotStuffMessage(message: string): string {
@@ -277,10 +259,52 @@ async function upgradeSocketToTls(
   servername: string,
   timeoutMs: number,
 ): Promise<tls.TLSSocket> {
+  try {
+    return await attemptTlsUpgrade(socket, servername, timeoutMs, true);
+  } catch (verifiedError) {
+    const tlsError = verifiedError as NodeJS.ErrnoException;
+    const errorCode = tlsError.code ?? 'UNKNOWN_TLS_ERROR';
+    const errorMessage =
+      tlsError instanceof Error
+        ? tlsError.message
+        : typeof tlsError === 'string'
+          ? tlsError
+          : String(tlsError);
+
+    console.warn(
+      `[outbound] STARTTLS certificate verification failed for host=${servername} code=${errorCode}: ${errorMessage}. Falling back to opportunistic TLS (certificate verification disabled).`,
+    );
+
+    try {
+      return await attemptTlsUpgrade(socket, servername, timeoutMs, false);
+    } catch (opportunisticError) {
+      const fallbackError = opportunisticError as NodeJS.ErrnoException;
+      const fallbackCode = fallbackError.code ?? 'UNKNOWN_TLS_ERROR';
+      const fallbackMessage =
+        fallbackError instanceof Error
+          ? fallbackError.message
+          : typeof fallbackError === 'string'
+            ? fallbackError
+            : String(fallbackError);
+
+      console.warn(
+        `[outbound] Opportunistic STARTTLS fallback failed for host=${servername} code=${fallbackCode}: ${fallbackMessage}`,
+      );
+      throw opportunisticError;
+    }
+  }
+}
+
+async function attemptTlsUpgrade(
+  socket: net.Socket,
+  servername: string,
+  timeoutMs: number,
+  rejectUnauthorized: boolean,
+): Promise<tls.TLSSocket> {
   const secureSocket = tls.connect({
     socket,
     servername,
-    rejectUnauthorized: false,
+    rejectUnauthorized,
   });
 
   secureSocket.setTimeout(timeoutMs);
@@ -450,6 +474,24 @@ function createDatabaseDataStore(): OutboundDataStore {
           return;
         }
 
+        const keypairRows = await tx
+          .select({ publicKey: keypairs.publicKey })
+          .from(keypairs)
+          .where(
+            and(
+              eq(keypairs.userId, sender.id),
+              eq(keypairs.type, 'x25519'),
+              eq(keypairs.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        const senderKeypair = keypairRows[0];
+        if (!senderKeypair) {
+          console.warn(`[bounce] no public key for ${senderAddress} — skipping bounce`);
+          return;
+        }
+
         const inboxRows = await tx
           .select({ id: mailboxes.id, uidNext: mailboxes.uidNext })
           .from(mailboxes)
@@ -466,6 +508,10 @@ function createDatabaseDataStore(): OutboundDataStore {
           `Delivery failed for message ${job.encryptedBodyRef}.\nReason: ${reason}`,
           'utf8',
         );
+        const bounceSubject = Buffer.from('Bounce notification', 'utf8');
+        const encryptor = createRecipientEncryptor(new Uint8Array(senderKeypair.publicKey));
+        const encryptedBodyPayload = encryptor.encrypt(bounceBody);
+        const encryptedSubjectPayload = encryptor.encrypt(bounceSubject);
 
         const inserted = await tx
           .insert(messages)
@@ -475,10 +521,10 @@ function createDatabaseDataStore(): OutboundDataStore {
             messageId: `bounce-${job.encryptedBodyRef}-${Date.now()}`,
             fromAddress: `mailer-daemon@${smtpDomain}`,
             toAddresses: [senderAddress],
-            subjectEncrypted: Buffer.from('Bounce notification', 'utf8'),
+            subjectEncrypted: encryptedSubjectPayload.ciphertext,
             date: now,
             flags: [],
-            size: bounceBody.length,
+            size: encryptedBodyPayload.ciphertext.length,
           })
           .returning({ id: messages.id });
 
@@ -489,11 +535,13 @@ function createDatabaseDataStore(): OutboundDataStore {
 
         await tx.insert(messageBodies).values({
           messageId: bounceMessage.id,
-          encryptedBody: bounceBody,
+          encryptedBody: encryptedBodyPayload.ciphertext,
           contentType: 'text/plain; charset=utf-8',
           encryptionMetadata: {
-            plaintextBounce: true,
-            note: 'Known limitation: bounce payload is stored as plaintext bytes.',
+            algorithm: 'x25519-chacha20poly1305',
+            ephemeralPublicKey: encryptedBodyPayload.ephemeralPublicKey.toString('hex'),
+            bodyNonce: encryptedBodyPayload.nonce.toString('hex'),
+            subjectNonce: encryptedSubjectPayload.nonce.toString('hex'),
           },
         });
 
@@ -536,18 +584,19 @@ export async function processOutboundMailJob(
   overrideDeps: Partial<OutboundWorkerDeps> = {},
 ): Promise<void> {
   const deps = createDefaultDeps(overrideDeps);
+  let mimeBody: string | undefined;
 
   try {
-    const message = await deps.dataStore.loadMessageById(job.data.encryptedBodyRef);
-    if (!message) {
+    const loadedMessage = await deps.dataStore.loadMessageById(job.data.encryptedBodyRef);
+    if (!loadedMessage) {
       throw new Error(`Message not found for encryptedBodyRef=${job.data.encryptedBodyRef}`);
     }
 
-    const rawMime = buildRawMimeMessage(message);
+    mimeBody = decryptMimeBody(job.data.encryptedMimeBody, job.data.mimeBodyNonce);
     const dkimDomain = parseAddressDomain(job.data.from);
     const privateKeyPem = await deps.loadDkimPrivateKeyFn();
     const signedMime = await deps.signMessageFn(
-      rawMime,
+      mimeBody,
       dkimDomain,
       deps.dkimSelector,
       privateKeyPem,
@@ -605,6 +654,8 @@ export async function processOutboundMailJob(
     }
 
     throw error;
+  } finally {
+    mimeBody = undefined;
   }
 }
 

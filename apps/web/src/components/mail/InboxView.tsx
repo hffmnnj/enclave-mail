@@ -17,21 +17,13 @@ import * as React from 'react';
 
 import { useDeleteMessage, useMessages, useUpdateMessageFlags } from '../../hooks/use-messages.js';
 import { useSearch, useSearchState } from '../../hooks/use-search.js';
+import { decryptField } from '../../lib/crypto-client.js';
 import { getQueryClient } from '../../lib/query-client.js';
 import { MessageRow } from './MessageRow.js';
 import { SwipeableMessageRow } from './SwipeableMessageRow.js';
 
 import type { MessageListItem } from '../../hooks/use-messages.js';
-
-// ---------------------------------------------------------------------------
-// Global augmentation for session key
-// ---------------------------------------------------------------------------
-
-declare global {
-  interface Window {
-    __enclave_session_key?: Uint8Array;
-  }
-}
+import type { EncryptionMetadata, KeyMaterial } from '../../lib/crypto-client.js';
 
 // ---------------------------------------------------------------------------
 // Subject decryption — client-side only
@@ -46,31 +38,23 @@ declare global {
 const tryDecryptSubject = (base64Subject: string): string | undefined => {
   if (typeof window === 'undefined') return undefined;
 
+  const sessionKey = window.__enclave_session_key;
+  if (!sessionKey || !(sessionKey instanceof Uint8Array)) {
+    return undefined;
+  }
+
   try {
-    // Session key is cached in memory after passphrase unlock
-    const sessionKey = window.__enclave_session_key;
-    if (!sessionKey || !(sessionKey instanceof Uint8Array)) {
-      return undefined;
+    const keyMaterial: KeyMaterial = { sessionKey };
+    const x25519PrivateKey = window.__enclave_x25519_private_key;
+    if (x25519PrivateKey instanceof Uint8Array) {
+      keyMaterial.x25519PrivateKey = x25519PrivateKey;
     }
 
-    // Decode base64 to Uint8Array
-    const raw = atob(base64Subject);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) {
-      bytes[i] = raw.charCodeAt(i);
-    }
-
-    // Encrypted subject format: [nonce (12B) | ciphertext + tag]
-    // Uses ChaCha20-Poly1305 with the session-derived key
-    const NONCE_LENGTH = 12;
-    if (bytes.length <= NONCE_LENGTH) return undefined;
-
-    // Full decryption will be wired when @enclave/crypto is bundled for browser.
-    // This is a safe degradation — subjects show as "[Encrypted]" until
-    // the crypto module is available in the browser bundle.
-    return undefined;
+    const metadata: EncryptionMetadata = { algorithm: 'chacha20-poly1305' };
+    const decrypted = decryptField(base64Subject, metadata, keyMaterial);
+    return decrypted ?? '[Encrypted]';
   } catch {
-    return undefined;
+    return '[Encrypted]';
   }
 };
 

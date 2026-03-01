@@ -7,6 +7,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
+import { encryptMimeBody } from '../../lib/mime-encryption.js';
 import type { AuthVariables } from '../../middleware/auth.js';
 import { authMiddleware, requireKeyExport } from '../../middleware/auth.js';
 import type { ApiError, ApiResponse } from '../types.js';
@@ -205,13 +206,16 @@ export const createComposeRouter = (deps: ComposeRouteDeps): Hono<{ Variables: A
       return c.json(body, 500);
     }
 
+    const { encryptedMimeBody, mimeBodyNonce } = encryptMimeBody(payload.mimeBody);
+
     // Enqueue outbound delivery job
     await deps.getOutboundQueue().add('outbound-send', {
       to: allRecipients,
       from: userEmail,
       encryptedBodyRef: messageId,
       dkimSign: true,
-      mimeBody: payload.mimeBody,
+      encryptedMimeBody,
+      mimeBodyNonce,
     });
 
     const body: ApiResponse<SendResult> = {
