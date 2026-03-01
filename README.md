@@ -339,7 +339,7 @@ bun run format      # Format with Biome
 | Property | Detail |
 |----------|--------|
 | Authentication | SRP (Secure Remote Password) — server never receives plaintext passwords |
-| Message encryption | Double Ratchet + X3DH session encryption |
+| Message encryption | Ephemeral X25519 + ChaCha20-Poly1305 per-message encryption |
 | Key derivation | Argon2id (64 MiB memory, 3 iterations) |
 | Asymmetric keys | X25519 (key exchange) + Ed25519 (signing) |
 | Symmetric cipher | ChaCha20-Poly1305 |
@@ -347,6 +347,26 @@ bun run format      # Format with Biome
 | Outbound MIME body | Encrypted at rest in queue (AES-256-GCM, server-side key); server decrypts for SMTP relay |
 
 > **Architectural note:** Standard SMTP requires the sending server to relay the full message to the recipient's mail server. Full end-to-end encryption for outbound mail is not possible within standard SMTP. The outbound MIME body is encrypted at rest in the BullMQ/Redis queue and purged immediately after transmission. A future roadmap item is client-assembled MIME to reduce the server's access window.
+
+#### Zero-knowledge scope and limitations
+
+Enclave Mail provides **zero-knowledge storage** for inbound email: messages are encrypted with the recipient's X25519 public key before being written to the database, and the server never holds the private key needed to decrypt them. Subjects, bodies, and metadata stored in PostgreSQL are ciphertext.
+
+**What the server cannot access:**
+- Stored message bodies and subjects (X25519+ChaCha20-Poly1305 ciphertext)
+- User private keys (generated and stored in the browser only)
+- User passwords (SRP — only a verifier is stored, never the password)
+
+**What the server does access transiently:**
+- Outbound MIME bodies during SMTP relay (encrypted at rest in Redis with AES-256-GCM; decrypted only at the moment of transmission, then purged)
+- Email addresses for SMTP routing (sender, recipients)
+- Unencrypted headers required by SMTP (e.g., `From`, `To`, `Date`, `Message-ID`)
+
+**Current encryption model:** Each inbound message is encrypted with an ephemeral X25519 key pair — the sender's ephemeral private key is combined with the recipient's stored public key to derive a shared secret, which is used as the ChaCha20-Poly1305 key. This provides per-message forward secrecy for inbound storage but does not implement a ratcheting protocol.
+
+**Future roadmap:**
+- **Double Ratchet + X3DH** — A full Signal-style ratcheting protocol for Enclave-to-Enclave messaging is planned for a future release. This would provide forward secrecy and break-in recovery for conversations between Enclave Mail users.
+- **Client-assembled MIME** — Moving MIME assembly to the browser would eliminate the server's transient access to outbound message content entirely.
 
 ---
 
