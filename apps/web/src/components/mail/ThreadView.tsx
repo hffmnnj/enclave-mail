@@ -17,6 +17,7 @@ import * as React from 'react';
 import { useDecryptMessage } from '../../hooks/use-decrypt-message.js';
 import { useUpdateMessageFlags } from '../../hooks/use-messages.js';
 import { getQueryClient } from '../../lib/query-client.js';
+import { SessionGate } from '../auth/SessionGate.js';
 import { MessageContent } from './MessageContent.js';
 
 // ---------------------------------------------------------------------------
@@ -428,7 +429,9 @@ const ThreadView = ({ messageId }: ThreadViewProps) => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThreadViewInner messageId={messageId} />
+      <SessionGate>
+        <ThreadViewInner messageId={messageId} />
+      </SessionGate>
     </QueryClientProvider>
   );
 };

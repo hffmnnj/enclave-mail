@@ -7,6 +7,7 @@ import * as React from 'react';
 
 import { getSessionKey, useEncryptSend, useSaveDraft } from '../../hooks/use-encrypt-send.js';
 import { getQueryClient } from '../../lib/query-client.js';
+import { SessionGate } from '../auth/SessionGate.js';
 import { RecipientInput } from './RecipientInput.js';
 import { TipTapEditor } from './TipTapEditor.js';
 
@@ -330,7 +331,9 @@ const ComposeView = ({ replyTo }: ComposeViewProps) => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ComposeViewInner replyTo={replyTo} />
+      <SessionGate>
+        <ComposeViewInner replyTo={replyTo} />
+      </SessionGate>
     </QueryClientProvider>
   );
 };

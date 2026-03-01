@@ -4,6 +4,12 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import type { IconSvgElement } from '@hugeicons/react';
 import * as React from 'react';
 
+import {
+  clearInMemorySessionSecrets,
+  decryptX25519PrivateKeyFromExportBlob,
+  deriveSessionKeyFromPassphrase,
+} from '../../lib/crypto-client.js';
+
 // ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
@@ -25,6 +31,12 @@ interface LoginFinishResponse {
   serverProof: string;
 }
 
+interface KeysExportResponse {
+  data: {
+    x25519EncryptedPrivateKey: string;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // LoginForm
 // ---------------------------------------------------------------------------
@@ -33,16 +45,19 @@ const LoginForm = () => {
   const [email, setEmail] = React.useState('');
   const [passphrase, setPassphrase] = React.useState('');
   const [showPassphrase, setShowPassphrase] = React.useState(false);
-  const [status, setStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [status, setStatus] = React.useState<'idle' | 'signing-in' | 'unlocking-keys' | 'error'>(
+    'idle',
+  );
   const [errorMessage, setErrorMessage] = React.useState('');
 
-  const canSubmit = email.length > 0 && passphrase.length > 0 && status !== 'loading';
+  const isLoading = status === 'signing-in' || status === 'unlocking-keys';
+  const canSubmit = email.length > 0 && passphrase.length > 0 && !isLoading;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
 
-    setStatus('loading');
+    setStatus('signing-in');
     setErrorMessage('');
 
     const base = getApiBaseUrl();
@@ -81,17 +96,47 @@ const LoginForm = () => {
 
       const { sessionToken } = (await finishResp.json()) as LoginFinishResponse;
 
-      // Store session token
+      setStatus('unlocking-keys');
+
+      // Store session token, user context, and SRP salt for unlock-on-refresh
       try {
         localStorage.setItem('enclave:sessionToken', sessionToken);
+        localStorage.setItem('enclave:userEmail', email);
+        localStorage.setItem('enclave:srpSalt', salt);
       } catch {
         // Storage may be unavailable
+      }
+
+      clearInMemorySessionSecrets();
+
+      const sessionKey = await deriveSessionKeyFromPassphrase(passphrase, salt);
+      window.__enclave_session_key = sessionKey;
+
+      // Best-effort: load and decrypt long-term X25519 private key for inbox decryption paths.
+      try {
+        const keysExportResp = await fetch(`${base}/keys/export`, {
+          headers: {
+            Authorization: `Bearer ${sessionToken}`,
+          },
+        });
+
+        if (keysExportResp.ok) {
+          const keysExportJson = (await keysExportResp.json()) as KeysExportResponse;
+          const x25519PrivateKey = await decryptX25519PrivateKeyFromExportBlob(
+            keysExportJson.data.x25519EncryptedPrivateKey,
+            passphrase,
+          );
+          window.__enclave_x25519_private_key = x25519PrivateKey;
+        }
+      } catch {
+        // Non-fatal: user can still proceed with session-key decryption only.
       }
 
       // Redirect to inbox
       window.location.href = '/mail/inbox';
     } catch {
-      setErrorMessage('Invalid email or passphrase. Please try again.');
+      clearInMemorySessionSecrets();
+      setErrorMessage('Sign in failed or keys could not be unlocked. Please try again.');
       setStatus('error');
     }
   };
@@ -167,10 +212,10 @@ const LoginForm = () => {
 
           {/* Submit */}
           <Button type="submit" size="lg" disabled={!canSubmit} className="w-full">
-            {status === 'loading' ? (
+            {isLoading ? (
               <span className="flex items-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
-                Signing in…
+                {status === 'unlocking-keys' ? 'Unlocking your keys…' : 'Signing in…'}
               </span>
             ) : (
               'Sign In'
