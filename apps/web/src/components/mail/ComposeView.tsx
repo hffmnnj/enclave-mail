@@ -12,6 +12,8 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import * as React from 'react';
 
 import { getSessionKey, useEncryptSend, useSaveDraft } from '../../hooks/use-encrypt-send.js';
+import type { SendResult } from '../../hooks/use-encrypt-send.js';
+import { getQueuedComposeCount } from '../../lib/offline-store.js';
 import { getQueryClient } from '../../lib/query-client.js';
 import { SessionGate } from '../auth/SessionGate.js';
 import { RecipientInput } from './RecipientInput.js';
@@ -204,6 +206,25 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
   // Encryption state
   const hasSessionKey = React.useMemo(() => !!getSessionKey(), []);
 
+  // Offline queue count
+  const [queuedCount, setQueuedCount] = React.useState(0);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void getQueuedComposeCount().then((count) => {
+        if (!cancelled) setQueuedCount(count);
+      });
+    };
+    refresh();
+    // Re-check after sends (interval covers background sync deliveries too)
+    const interval = setInterval(refresh, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Mutations
   const sendMutation = useEncryptSend();
   const draftMutation = useSaveDraft();
@@ -391,7 +412,12 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       },
       {
-        onSuccess: () => {
+        onSuccess: (result: SendResult) => {
+          if (result.offlineQueued) {
+            // Refresh queued count and stay on compose (user is offline)
+            void getQueuedComposeCount().then(setQueuedCount);
+            return;
+          }
           // Navigate back to inbox after successful send
           window.location.href = '/mail/inbox';
         },
@@ -549,6 +575,12 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
       <div className="flex shrink-0 items-center gap-3 border-t border-border bg-surface px-3 py-1.5 max-md:pb-[max(0.375rem,env(safe-area-inset-bottom))]">
         <EncryptionStatus hasKey={hasSessionKey} />
 
+        {queuedCount > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber/15 px-2 py-0.5 text-ui-xs text-amber">
+            Queued ({String(queuedCount)})
+          </span>
+        )}
+
         <div className="flex-1" />
 
         <DraftStatusIndicator status={draftStatus} />
@@ -563,6 +595,13 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
           Discard
         </Button>
       </div>
+
+      {/* Offline queued toast */}
+      {sendMutation.isSuccess && sendMutation.data?.offlineQueued && (
+        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 rounded-sm border border-amber bg-amber/10 px-4 py-2 text-ui-sm text-amber shadow-modal max-md:bottom-16">
+          Message queued — it will be sent when you reconnect
+        </div>
+      )}
 
       {/* Send error toast */}
       {sendMutation.isError && (

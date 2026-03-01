@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 
 import { getApiClient } from '../lib/api-client.js';
+import { queueCompose } from '../lib/offline-store.js';
 import { useMailboxes } from './use-mailboxes.js';
 import type { PaginatedMessages } from './use-messages.js';
 
@@ -32,6 +33,8 @@ interface SendPayload {
 interface SendResult {
   messageId: string;
   status: 'queued';
+  /** True when the message was queued offline for later delivery. */
+  offlineQueued?: boolean | undefined;
 }
 
 interface DraftPayload {
@@ -244,15 +247,32 @@ const useEncryptSend = () => {
         attachmentIds: input.attachmentIds?.length ? input.attachmentIds : undefined,
       };
 
-      const res = await api.compose.send.$post(
-        {
-          json: payload,
-        },
-        {
-          headers: authHeaders(),
-          signal: AbortSignal.timeout(30_000),
-        },
-      );
+      let res: RpcResponse<ApiResponse<SendResult>>;
+      try {
+        res = await api.compose.send.$post(
+          {
+            json: payload,
+          },
+          {
+            headers: authHeaders(),
+            signal: AbortSignal.timeout(30_000),
+          },
+        );
+      } catch (error: unknown) {
+        // Network failure (offline, DNS, timeout) — queue for background sync
+        if (
+          error instanceof TypeError ||
+          (error instanceof DOMException && error.name === 'AbortError')
+        ) {
+          await queueCompose(payload as unknown as Record<string, unknown>);
+          return {
+            messageId: `offline-${Date.now()}`,
+            status: 'queued' as const,
+            offlineQueued: true,
+          };
+        }
+        throw error;
+      }
 
       if (!res.ok) {
         const errorBody = (await res.json().catch(() => null)) as {
