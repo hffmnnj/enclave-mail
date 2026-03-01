@@ -15,7 +15,13 @@ import type { IconSvgElement } from '@hugeicons/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import * as React from 'react';
 
-import { useDeleteMessage, useMessages, useUpdateMessageFlags } from '../../hooks/use-messages.js';
+import { useMailboxes } from '../../hooks/use-mailboxes.js';
+import {
+  useDeleteMessage,
+  useMessages,
+  useMoveMessage,
+  useUpdateMessageFlags,
+} from '../../hooks/use-messages.js';
 import { useSearch, useSearchState } from '../../hooks/use-search.js';
 import { decryptField } from '../../lib/crypto-client.js';
 import { getQueryClient } from '../../lib/query-client.js';
@@ -283,6 +289,8 @@ const InboxViewInner = ({ mailboxId }: InboxViewInnerProps) => {
   const { data, isLoading, isError, error, refetch } = useMessages(mailboxId, { page, limit });
   const updateFlags = useUpdateMessageFlags(mailboxId);
   const deleteMessage = useDeleteMessage(mailboxId);
+  const moveMessage = useMoveMessage(mailboxId);
+  const { data: allMailboxes } = useMailboxes();
 
   // Use search results when searching, otherwise use paginated messages
   const allMessages = data?.data ?? [];
@@ -358,11 +366,11 @@ const InboxViewInner = ({ mailboxId }: InboxViewInnerProps) => {
   // Swipe actions (mobile only)
   const handleSwipeArchive = React.useCallback(
     (messageId: string) => {
-      // Move to archive — for now use flag update as placeholder
-      // Full move-to-archive will use useMoveMessage when wired
-      updateFlags.mutate({ messageId, flags: { seen: true } });
+      const archiveMailbox = allMailboxes?.find((m) => m.type === 'archive');
+      if (!archiveMailbox) return;
+      moveMessage.mutate({ messageId, targetMailboxId: archiveMailbox.id });
     },
-    [updateFlags],
+    [allMailboxes, moveMessage],
   );
 
   const handleSwipeDelete = React.useCallback(

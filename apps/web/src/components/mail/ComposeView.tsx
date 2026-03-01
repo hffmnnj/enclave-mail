@@ -29,6 +29,7 @@ interface ReplyToContext {
   messageId?: string | undefined;
   subject?: string | undefined;
   fromAddress?: string | undefined;
+  quotedBody?: string | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,10 +92,16 @@ const ComposeViewInner = ({ replyTo }: ComposeViewInnerProps) => {
   const [ccRecipients, setCcRecipients] = React.useState<string[]>([]);
   const [bccRecipients, setBccRecipients] = React.useState<string[]>([]);
   const [showCcBcc, setShowCcBcc] = React.useState(false);
-  const [subject, setSubject] = React.useState(
-    replyTo?.subject ? `Re: ${replyTo.subject.replace(/^Re:\s*/i, '')}` : '',
-  );
-  const [htmlBody, setHtmlBody] = React.useState('');
+  const [subject, setSubject] = React.useState(() => {
+    if (!replyTo?.subject) return '';
+    // If subject already has Re:/Fwd: prefix from the caller, use as-is
+    if (/^(Re|Fwd):\s/i.test(replyTo.subject)) return replyTo.subject;
+    return `Re: ${replyTo.subject}`;
+  });
+  const [htmlBody, setHtmlBody] = React.useState(() => {
+    if (!replyTo?.quotedBody) return '';
+    return `<br/><blockquote style="border-left:2px solid #ccc;padding-left:8px;margin:8px 0;color:#666">${replyTo.quotedBody}</blockquote>`;
+  });
   const [draftStatus, setDraftStatus] = React.useState<DraftStatus>('idle');
 
   // Encryption state
