@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 
 import { getApiClient } from '../lib/api-client.js';
+import { decryptField } from '../lib/crypto-client.js';
 import type { MessageListItem, PaginatedMessages } from './use-messages.js';
 
 type RpcResponse<T> = {
@@ -167,16 +168,31 @@ const applyClientSideFilters = (
     filtered = filtered.filter((m) => new Date(m.date).getTime() < to);
   }
 
-  // Client-side text search on decrypted content
-  // When @enclave/crypto is bundled for browser, decrypted subjects/bodies
-  // will be available in the TanStack Query cache. For now, this searches
-  // the fromAddress and toAddresses fields client-side as a supplement.
+  // Client-side text search on decrypted content.
+  // Subjects are encrypted server-side, so we decrypt them here using the
+  // in-memory session key before matching against the query string.
   if (query.trim()) {
     const lowerQuery = query.trim().toLowerCase();
+    const sessionKey = typeof window !== 'undefined' ? window.__enclave_session_key : undefined;
+
     filtered = filtered.filter((m) => {
       const fromMatch = m.fromAddress.toLowerCase().includes(lowerQuery);
       const toMatch = m.toAddresses.some((addr) => addr.toLowerCase().includes(lowerQuery));
-      return fromMatch || toMatch;
+      if (fromMatch || toMatch) return true;
+
+      // Attempt decrypted subject search when session key is available
+      if (sessionKey instanceof Uint8Array && m.subjectEncrypted) {
+        const decryptedSubject = decryptField(
+          m.subjectEncrypted,
+          { algorithm: 'chacha20-poly1305' },
+          { sessionKey },
+        );
+        if (decryptedSubject?.toLowerCase().includes(lowerQuery)) {
+          return true;
+        }
+      }
+
+      return false;
     });
   }
 
