@@ -18,6 +18,14 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAU
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expiry TIMESTAMPTZ;
 
+-- Ensure every user has an Archive mailbox (idempotent backfill for existing users)
+INSERT INTO mailboxes (user_id, name, type, uid_validity, uid_next)
+SELECT u.id, 'Archive', 'archive', EXTRACT(EPOCH FROM NOW())::INTEGER, 1
+FROM users u
+WHERE NOT EXISTS (
+  SELECT 1 FROM mailboxes m WHERE m.user_id = u.id AND m.type = 'archive'
+);
+
 CREATE TABLE IF NOT EXISTS keypairs (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, type keypair_type NOT NULL, public_key BYTEA NOT NULL, encrypted_private_key BYTEA NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE INDEX IF NOT EXISTS keypairs_user_type_active_idx ON keypairs (user_id, type, is_active);
 CREATE TABLE IF NOT EXISTS sessions (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
