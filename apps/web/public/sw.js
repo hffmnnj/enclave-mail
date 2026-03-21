@@ -160,16 +160,24 @@ async function flushComposeQueue() {
       // POST the pre-composed payload to the correct compose endpoint.
       // Items are stored via use-encrypt-send when offline; fields mirror the
       // compose API schema (encryptedBody, mimeBody, to, subject, etc.).
+      const headers = { 'Content-Type': 'application/json' };
+      if (item.authToken) {
+        headers.Authorization = `Bearer ${item.authToken}`;
+      }
       const response = await fetch('/api/compose/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(item.payload),
       });
 
       if (response.ok) {
         await deleteFromStore(db, 'compose-queue', item.id);
+      } else if (response.status === 401 || response.status === 403) {
+        // Auth expired or forbidden — remove to avoid infinite retry with stale token
+        await deleteFromStore(db, 'compose-queue', item.id);
+        console.warn('[SW] Compose sync auth failed for item', item.id, '— removed from queue');
       }
-      // Non-ok responses: leave in queue for next sync attempt
+      // Other non-ok responses (429, 500, etc.): leave in queue for next sync attempt
     } catch (_err) {
       // Network error: leave in queue for next sync attempt
       console.warn('[SW] Compose sync failed for item', item.id, '— will retry');
@@ -222,3 +230,39 @@ function deleteFromStore(db, storeName, key) {
     request.onerror = () => reject(request.error);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Push Notifications
+// ---------------------------------------------------------------------------
+
+self.addEventListener('push', (event) => {
+  const data = event.data ? event.data.json() : {};
+  const title = data.title || 'New message';
+  const options = {
+    body: data.body || '',
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    data: { url: data.url || '/mail/inbox' },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || '/mail/inbox';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Focus an existing tab if one is open
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      // Otherwise open a new window
+      return self.clients.openWindow(targetUrl);
+    }),
+  );
+});

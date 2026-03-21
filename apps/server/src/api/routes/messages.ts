@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 
 import { db, mailboxes, messageBodies, messages } from '@enclave/db';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { type SQL, and, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { z } from 'zod';
@@ -17,6 +17,9 @@ import type { ApiError, ApiResponse, PaginatedResponse } from '../types.js';
 const paginationSchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(200).default(50),
+  search: z.string().max(200).optional(),
+  seen: z.enum(['true', 'false']).optional(),
+  flagged: z.enum(['true', 'false']).optional(),
 });
 
 const updateFlagsSchema = z.object({
@@ -173,22 +176,25 @@ export const createMessageRouter = (
     const userId = c.get('userId');
     const mailboxId = c.req.param('id');
 
-    // Validate pagination params
+    // Validate pagination + filter params
     const queryParsed = paginationSchema.safeParse({
       offset: c.req.query('offset'),
       limit: c.req.query('limit'),
+      search: c.req.query('search'),
+      seen: c.req.query('seen'),
+      flagged: c.req.query('flagged'),
     });
 
     if (!queryParsed.success) {
       const body: ApiError = {
-        error: 'Invalid pagination parameters',
+        error: 'Invalid query parameters',
         code: 'VALIDATION_ERROR',
         details: queryParsed.error.issues,
       };
       return c.json(body, 400);
     }
 
-    const { offset, limit } = queryParsed.data;
+    const { offset, limit, search, seen, flagged } = queryParsed.data;
 
     // Verify mailbox belongs to user
     const mailboxRows = await getDb()
@@ -201,11 +207,41 @@ export const createMessageRouter = (
       return c.json(body, 404);
     }
 
-    // Get total count
+    // Build filter conditions
+    const conditions: SQL[] = [eq(messages.mailboxId, mailboxId)];
+
+    // Search: match fromAddress or any toAddresses entry (JSONB array)
+    if (search) {
+      const pattern = `%${search}%`;
+      conditions.push(
+        or(
+          ilike(messages.fromAddress, pattern),
+          sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${messages.toAddresses}) AS addr WHERE addr ILIKE ${pattern})`,
+        )!,
+      );
+    }
+
+    // Filter by seen/unseen (flags is a JSONB array of strings)
+    if (seen === 'true') {
+      conditions.push(sql`${messages.flags} @> '"seen"'::jsonb`);
+    } else if (seen === 'false') {
+      conditions.push(sql`NOT (${messages.flags} @> '"seen"'::jsonb)`);
+    }
+
+    // Filter by flagged
+    if (flagged === 'true') {
+      conditions.push(sql`${messages.flags} @> '"flagged"'::jsonb`);
+    } else if (flagged === 'false') {
+      conditions.push(sql`NOT (${messages.flags} @> '"flagged"'::jsonb)`);
+    }
+
+    const whereClause = and(...conditions);
+
+    // Get total count (with filters applied)
     const totalResult = await getDb()
       .select({ value: sql<number>`count(*)::int` })
       .from(messages)
-      .where(eq(messages.mailboxId, mailboxId));
+      .where(whereClause);
 
     const total = totalResult[0]?.value ?? 0;
 
@@ -226,7 +262,7 @@ export const createMessageRouter = (
         dmarcStatus: messages.dmarcStatus,
       })
       .from(messages)
-      .where(eq(messages.mailboxId, mailboxId))
+      .where(whereClause)
       .orderBy(desc(messages.date))
       .offset(offset)
       .limit(limit);

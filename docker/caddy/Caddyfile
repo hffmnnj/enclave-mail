@@ -64,11 +64,8 @@
         # Send only the origin (no path/query) as the Referer header to third parties
         Referrer-Policy strict-origin-when-cross-origin
 
-        # Content Security Policy
-        # 'unsafe-inline' is required for script-src because Astro injects inline
-        # hydration scripts for React islands. Tighten this if you move to a
-        # nonce-based CSP in a future iteration.
-        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+        # Content Security Policy is set per-request by Astro middleware.
+        # This keeps nonces request-scoped and avoids a static proxy-level policy.
 
         # Remove the Server header to avoid leaking Caddy version information
         -Server

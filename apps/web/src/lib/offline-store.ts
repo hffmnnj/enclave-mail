@@ -32,11 +32,18 @@ interface CachedMessage {
   cachedAt: number;
 }
 
+/**
+ * Shape of a queued compose item. The `payload` field is the JSON-serializable
+ * object that the service worker POSTs directly to `/api/compose/send`.
+ * This must stay aligned with the SW's `flushComposeQueue()` which reads
+ * `item.payload` and `item.authToken` from the same IndexedDB store.
+ */
 interface QueuedCompose {
   id?: number | undefined;
-  encryptedPayload: Uint8Array;
-  nonce: Uint8Array;
-  recipientPublicKey: string;
+  /** The full compose API payload, ready to POST as JSON. */
+  payload: Record<string, unknown>;
+  /** Bearer token captured at queue time so the SW can authenticate the request. */
+  authToken: string | null;
   queuedAt: number;
 }
 
@@ -175,12 +182,20 @@ async function clearMessageCache(): Promise<void> {
 
 /**
  * Queue an already-encrypted compose payload for background sync delivery.
- * The payload is encrypted by the compose view before calling this function —
- * no re-encryption is needed.
+ * The `payload` is the JSON body that the SW will POST to `/api/compose/send`.
+ * The auth token is captured now so the SW can authenticate the deferred request.
  */
-async function queueCompose(item: Omit<QueuedCompose, 'id' | 'queuedAt'>): Promise<void> {
+async function queueCompose(payload: Record<string, unknown>): Promise<void> {
+  let authToken: string | null = null;
+  try {
+    authToken = localStorage.getItem('enclave:sessionToken');
+  } catch {
+    // localStorage unavailable
+  }
+
   const record: Omit<QueuedCompose, 'id'> = {
-    ...item,
+    payload,
+    authToken,
     queuedAt: Date.now(),
   };
 
@@ -234,6 +249,19 @@ async function removeQueuedCompose(id: number): Promise<void> {
 }
 
 /**
+ * Return the number of queued compose items without loading full records.
+ */
+async function getQueuedComposeCount(): Promise<number> {
+  const db = await openOfflineDB();
+  try {
+    const tx = db.transaction(STORE_COMPOSE_QUEUE, 'readonly');
+    return await idbRequest<number>(tx.objectStore(STORE_COMPOSE_QUEUE).count());
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Clear all queued compose items.
  */
 async function clearComposeQueue(): Promise<void> {
@@ -258,6 +286,7 @@ export {
   clearMessageCache,
   queueCompose,
   getQueuedComposes,
+  getQueuedComposeCount,
   removeQueuedCompose,
   clearComposeQueue,
 };

@@ -3,6 +3,8 @@ import * as React from 'react';
 
 import type { RegistrationBundle } from '@enclave/crypto';
 
+import { deriveSessionKeyFromPassphrase } from '../../lib/crypto-client.js';
+
 import { ConfirmStep } from './ConfirmStep.js';
 import { DnsRecordsStep } from './DnsRecordsStep.js';
 import { DnsVerificationStep } from './DnsVerificationStep.js';
@@ -177,6 +179,7 @@ const OnboardingWizard = () => {
   );
   const [sessionToken, setSessionToken] = React.useState('');
   const [keyGenError, setKeyGenError] = React.useState<string | null>(null);
+  const [confirmError, setConfirmError] = React.useState<string | null>(null);
 
   // Detect setup status on mount
   React.useEffect(() => {
@@ -218,12 +221,14 @@ const OnboardingWizard = () => {
     setEmail(newEmail);
     setPassphrase(newPassphrase);
     setKeyGenError(null);
+    setConfirmError(null);
     setCurrentStep(7);
   }, []);
 
   // Step 7 → Step 8
   const handleKeyGenComplete = React.useCallback((bundle: RegistrationBundle) => {
     setRegistrationBundle(bundle);
+    setConfirmError(null);
     setCurrentStep(8);
   }, []);
 
@@ -246,14 +251,43 @@ const OnboardingWizard = () => {
   // Step 9 → redirect (existing) or Step 10 (fresh)
   const handleConfirmComplete = React.useCallback(
     (token: string) => {
-      if (isFreshInstall) {
-        setSessionToken(token);
-        setCurrentStep(10);
-      } else {
-        window.location.href = '/mail/inbox';
-      }
+      void (async () => {
+        if (!registrationBundle) {
+          setConfirmError('Missing registration bundle. Please retry account creation.');
+          return;
+        }
+
+        try {
+          const sessionKey = await deriveSessionKeyFromPassphrase(
+            passphrase,
+            registrationBundle.salt,
+          );
+          window.__enclave_session_key = sessionKey;
+
+          if (registrationBundle.x25519KeyPair.privateKey instanceof Uint8Array) {
+            window.__enclave_x25519_private_key = registrationBundle.x25519KeyPair.privateKey;
+          }
+
+          try {
+            localStorage.setItem('enclave:userEmail', email);
+          } catch {
+            // Storage may be unavailable
+          }
+
+          setConfirmError(null);
+
+          if (isFreshInstall) {
+            setSessionToken(token);
+            setCurrentStep(10);
+          } else {
+            window.location.href = '/mail/inbox';
+          }
+        } catch {
+          setConfirmError('Account created, but key unlock failed. Please retry sign in.');
+        }
+      })();
     },
-    [isFreshInstall],
+    [email, isFreshInstall, passphrase, registrationBundle],
   );
 
   // Step 10 → redirect
@@ -285,6 +319,12 @@ const OnboardingWizard = () => {
               <span className="text-ui-xs text-text-secondary">{getStepLabel(currentStep)}</span>
             </div>
             <ProgressBar current={visualStep} total={totalSteps} />
+          </div>
+        )}
+
+        {confirmError !== null && (
+          <div className="mb-4 rounded-sm border border-danger/30 bg-danger/10 p-3">
+            <p className="text-ui-xs text-danger">{confirmError}</p>
           </div>
         )}
 

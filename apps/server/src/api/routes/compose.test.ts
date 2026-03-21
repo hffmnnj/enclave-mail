@@ -95,7 +95,16 @@ mock.module('@enclave/db', () => ({
     encryptedBody: 'encrypted_body',
     encryptionMetadata: 'encryption_metadata',
   },
-  users: { id: 'id', email: 'email' },
+  users: { id: 'id', email: 'email', emailVerified: 'email_verified', isAdmin: 'is_admin' },
+  attachmentBlobs: {
+    id: 'id',
+    messageId: 'message_id',
+    filename: 'filename',
+    mimeType: 'mime_type',
+    encryptedBlob: 'encrypted_blob',
+    size: 'size',
+    nonce: 'nonce',
+  },
 }));
 
 mock.module('drizzle-orm', () => ({
@@ -134,8 +143,31 @@ mock.module('../../queue/mail-queue.js', () => ({
     add: async (name: string, data: unknown) => {
       queuedJobs.push({ name, data });
     },
+    getJobs: async () => queuedJobs.map((j) => ({ data: j.data })),
   }),
 }));
+
+// ---------------------------------------------------------------------------
+// Mock rate-limit middleware — bypass for route testing
+// ---------------------------------------------------------------------------
+
+mock.module('../../middleware/rate-limit.js', () => {
+  const passthrough = async (_c: unknown, next: () => Promise<void>) => {
+    await next();
+  };
+
+  return {
+    sendRateLimit: passthrough,
+    draftCreateRateLimit: passthrough,
+    draftUpdateRateLimit: passthrough,
+    draftDeleteRateLimit: passthrough,
+    createUserRateLimiter: () => passthrough,
+    rateLimitMiddleware: () => passthrough,
+    ipRateLimit: passthrough,
+    userRateLimit: passthrough,
+    authRateLimit: passthrough,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Import after mocks
@@ -163,11 +195,14 @@ function createRouter(overrides?: Partial<ComposeRouteDeps>) {
           queuedJobs.push({ name, data });
           return {} as unknown;
         },
+        getJobs: async () =>
+          queuedJobs.map((j) => ({ data: j.data })) as unknown as ReturnType<QueueType['getJobs']>,
       }) as unknown as QueueType,
     getUserEmail: async (userId: string) => {
       if (userId === USER_ID) return USER_EMAIL;
       return null;
     },
+    maxOutboundQueueDepth: 100,
     ...overrides,
   });
 }
@@ -197,6 +232,8 @@ describe('composeRouter', () => {
     selectResult = [];
     insertResult = [{ id: 'msg-001' }];
     queuedJobs = [];
+    // Disable email verification by default so existing tests are unaffected
+    process.env.REQUIRE_EMAIL_VERIFICATION = 'false';
 
     selectWhereMock.mockClear();
     selectOrderByMock.mockClear();
@@ -246,7 +283,9 @@ describe('composeRouter', () => {
       expect(jobData.from).toBe(USER_EMAIL);
       expect(jobData.to).toEqual(['bob@example.com', 'carol@example.com']);
       expect(jobData.dkimSign).toBe(true);
-      expect(jobData.mimeBody).toBe(validSendPayload.mimeBody);
+      expect(typeof jobData.encryptedMimeBody).toBe('string');
+      expect(typeof jobData.mimeBodyNonce).toBe('string');
+      expect(jobData.mimeBody).toBeUndefined();
     });
 
     test('rejects request with missing required fields', async () => {
@@ -336,6 +375,39 @@ describe('composeRouter', () => {
       });
 
       expect(response.status).toBe(404);
+    });
+
+    test('returns 403 when email is not verified and verification is required', async () => {
+      process.env.REQUIRE_EMAIL_VERIFICATION = 'true';
+      selectWhereMock.mockImplementation(async () => [{ emailVerified: false, isAdmin: false }]);
+
+      const router = createRouter();
+      const response = await makeRequest(router, '/compose/send', {
+        method: 'POST',
+        body: JSON.stringify(validSendPayload),
+      });
+
+      expect(response.status).toBe(403);
+      const json = (await response.json()) as { code: string };
+      expect(json.code).toBe('EMAIL_NOT_VERIFIED');
+    });
+
+    test('allows admin to send even when email is not verified', async () => {
+      process.env.REQUIRE_EMAIL_VERIFICATION = 'true';
+      let callCount = 0;
+      selectWhereMock.mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) return [{ emailVerified: false, isAdmin: true }];
+        return [{ id: SENT_MAILBOX_ID, uidNext: 1 }];
+      });
+
+      const router = createRouter();
+      const response = await makeRequest(router, '/compose/send', {
+        method: 'POST',
+        body: JSON.stringify(validSendPayload),
+      });
+
+      expect(response.status).toBe(200);
     });
   });
 

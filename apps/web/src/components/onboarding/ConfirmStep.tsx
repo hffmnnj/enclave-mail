@@ -43,6 +43,7 @@ interface LoginStartResponse {
 interface LoginFinishResponse {
   sessionToken: string;
   serverProof: string;
+  emailVerified: boolean;
 }
 
 // ---------------------------------------------------------------------------

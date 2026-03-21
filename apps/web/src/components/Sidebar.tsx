@@ -19,6 +19,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import * as React from 'react';
 
 import { useMailboxes } from '../hooks/use-mailboxes.js';
+import { clearInMemorySessionSecrets } from '../lib/crypto-client.js';
 import { getQueryClient } from '../lib/query-client.js';
 import { FolderManager } from './mail/FolderManager.js';
 
@@ -314,7 +315,9 @@ const handleLogout = () => {
   })();
 
   try {
+    clearInMemorySessionSecrets();
     localStorage.removeItem('enclave:sessionToken');
+    localStorage.removeItem('enclave:userEmail');
   } catch {
     // Storage may be unavailable
   }

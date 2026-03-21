@@ -2,13 +2,29 @@ import { Button, Input, cn } from '@enclave/ui';
 import { ViewIcon, ViewOffIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import type { IconSvgElement } from '@hugeicons/react';
+import { zxcvbn, zxcvbnOptions } from '@zxcvbn-ts/core';
+import * as zxcvbnCommonPackage from '@zxcvbn-ts/language-common';
+import * as zxcvbnEnPackage from '@zxcvbn-ts/language-en';
 import * as React from 'react';
 
 // ---------------------------------------------------------------------------
-// Passphrase strength evaluation
+// zxcvbn configuration — run once at module load
 // ---------------------------------------------------------------------------
 
-type StrengthLevel = 'weak' | 'fair' | 'strong' | 'very-strong';
+zxcvbnOptions.setOptions({
+  translations: zxcvbnEnPackage.translations,
+  graphs: zxcvbnCommonPackage.adjacencyGraphs,
+  dictionary: {
+    ...zxcvbnCommonPackage.dictionary,
+    ...zxcvbnEnPackage.dictionary,
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Passphrase strength evaluation (zxcvbn-based)
+// ---------------------------------------------------------------------------
+
+type StrengthLevel = 'very-weak' | 'weak' | 'fair' | 'good' | 'strong';
 
 interface StrengthInfo {
   level: StrengthLevel;
@@ -16,47 +32,66 @@ interface StrengthInfo {
   colorClass: string;
   barClass: string;
   percent: number;
+  score: number;
+  suggestions: string[];
+  warning: string;
 }
 
+/** Score labels: 0="Very weak", 1="Weak", 2="Fair", 3="Good", 4="Strong" */
+const SCORE_CONFIG: Record<
+  number,
+  { level: StrengthLevel; label: string; colorClass: string; barClass: string; percent: number }
+> = {
+  0: {
+    level: 'very-weak',
+    label: 'Very weak',
+    colorClass: 'text-danger',
+    barClass: 'bg-danger',
+    percent: 10,
+  },
+  1: {
+    level: 'weak',
+    label: 'Weak',
+    colorClass: 'text-danger',
+    barClass: 'bg-danger',
+    percent: 25,
+  },
+  2: {
+    level: 'fair',
+    label: 'Fair',
+    colorClass: 'text-amber',
+    barClass: 'bg-amber',
+    percent: 50,
+  },
+  3: {
+    level: 'good',
+    label: 'Good',
+    colorClass: 'text-success',
+    barClass: 'bg-success',
+    percent: 75,
+  },
+  4: {
+    level: 'strong',
+    label: 'Strong',
+    colorClass: 'text-emerald-400 font-semibold',
+    barClass: 'bg-emerald-400',
+    percent: 100,
+  },
+};
+
 const evaluateStrength = (passphrase: string): StrengthInfo => {
-  const len = passphrase.length;
-
-  if (len < 8) {
-    return {
-      level: 'weak',
-      label: 'Weak',
-      colorClass: 'text-danger',
-      barClass: 'bg-danger',
-      percent: 25,
-    };
+  if (passphrase.length === 0) {
+    return { ...SCORE_CONFIG[0]!, score: 0, suggestions: [], warning: '' };
   }
 
-  if (len < 12) {
-    return {
-      level: 'fair',
-      label: 'Fair',
-      colorClass: 'text-amber',
-      barClass: 'bg-amber',
-      percent: 50,
-    };
-  }
-
-  if (len < 20) {
-    return {
-      level: 'strong',
-      label: 'Strong',
-      colorClass: 'text-success',
-      barClass: 'bg-success',
-      percent: 75,
-    };
-  }
+  const result = zxcvbn(passphrase);
+  const config = SCORE_CONFIG[result.score] ?? SCORE_CONFIG[0]!;
 
   return {
-    level: 'very-strong',
-    label: 'Very strong',
-    colorClass: 'text-success font-semibold',
-    barClass: 'bg-success',
-    percent: 100,
+    ...config,
+    score: result.score,
+    suggestions: result.feedback.suggestions ?? [],
+    warning: result.feedback.warning ?? '',
   };
 };
 
@@ -87,7 +122,7 @@ const PassphraseStep = ({ onNext }: PassphraseStepProps) => {
   const strength = evaluateStrength(passphrase);
   const emailValid = isValidEmail(email);
   const passphraseMatch = passphrase === confirmPassphrase;
-  const strengthSufficient = strength.level !== 'weak';
+  const strengthSufficient = strength.score >= 3;
 
   const canProceed = emailValid && passphrase.length > 0 && passphraseMatch && strengthSufficient;
 
@@ -164,11 +199,24 @@ const PassphraseStep = ({ onNext }: PassphraseStepProps) => {
               />
             </div>
             <span className={cn('text-ui-xs', strength.colorClass)}>{strength.label}</span>
+            {/* zxcvbn feedback: warning + suggestions */}
+            {(strength.warning || strength.suggestions.length > 0) && (
+              <div className="flex flex-col gap-0.5">
+                {strength.warning && (
+                  <output className="block text-ui-xs text-amber">{strength.warning}</output>
+                )}
+                {strength.suggestions.map((suggestion) => (
+                  <p key={suggestion} className="text-ui-xs text-text-secondary">
+                    {suggestion}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {touched.passphrase && passphrase.length > 0 && !strengthSufficient && (
           <p className="text-ui-xs text-danger" role="alert">
-            Passphrase must be at least 8 characters
+            Passphrase must score &ldquo;Good&rdquo; or higher to continue
           </p>
         )}
       </div>

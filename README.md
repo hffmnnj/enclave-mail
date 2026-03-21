@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v0.1.0-green.svg)](https://github.com/hffmnnj/enclave-mail/releases)
 
-**Self-hosted, end-to-end encrypted email with Proton Mail-level security — user-controlled keys and infrastructure.**
+**Self-hosted, privacy-first email with user-controlled keys and infrastructure.**
 
-Enclave Mail is a complete email server and webmail client you run on your own VPS. The server stores only ciphertext and never sees your plaintext messages or passwords. Your private keys are generated in the browser and never leave your device.
+Enclave Mail is a complete email server and webmail client you run on your own VPS. Inbound messages are stored as ciphertext that the server cannot decrypt. Outbound messages transit the server encrypted at rest (AES-256-GCM) for SMTP relay — an inherent constraint of standard SMTP architecture. Your private keys are generated in the browser and never leave your device. Passwords are never transmitted in plaintext.
 
 Note: Email is fundamentally an insecure communication protocol. If your goal is private communication, email alone cannot guarantee it. No matter how secure your platform is, your privacy is still limited by the recipient’s security and privacy practices.
 
@@ -46,7 +46,7 @@ graph TB
     style Crypto fill:#1A1D2B,color:#4A9BAE
 ```
 
-> 🔒 **Zero-knowledge design**: The server stores only encrypted ciphertext. Your private keys and message content never leave your device.
+> **Privacy design**: Inbound messages are stored as X25519+ChaCha20-Poly1305 ciphertext — the server never decrypts them. Outbound MIME bodies are encrypted at rest in the queue (AES-256-GCM) and decrypted by the server only at the moment of SMTP transmission, which is required for standard email delivery. Private keys never leave your device.
 
 ---
 
@@ -96,8 +96,8 @@ SMTP_DOMAIN=your-domain.com bun run scripts/generate-dkim-keys.ts
 # 4. Start all services
 docker compose up -d
 
-# 5. Run database migrations
-docker compose exec server bun run src/db/migrate.ts
+# 5. Run database migrations (or let the server apply them automatically on startup)
+docker compose exec server bun run db:migrate
 
 # 6. Open webmail and complete onboarding
 open https://your-domain.com
@@ -341,11 +341,64 @@ bun run format      # Format with Biome
 | Property | Detail |
 |----------|--------|
 | Authentication | SRP (Secure Remote Password) — server never receives plaintext passwords |
-| Message encryption | Double Ratchet + X3DH session encryption |
+| Message encryption | Ephemeral X25519 + ChaCha20-Poly1305 per-message encryption |
 | Key derivation | Argon2id (64 MiB memory, 3 iterations) |
 | Asymmetric keys | X25519 (key exchange) + Ed25519 (signing) |
 | Symmetric cipher | ChaCha20-Poly1305 |
-| Storage | Server stores ciphertext only — zero plaintext at rest |
+| Inbound storage | Stored as X25519+ChaCha20-Poly1305 ciphertext; server never decrypts |
+| Outbound MIME body | Encrypted at rest in queue (AES-256-GCM, server-side key); server decrypts for SMTP relay |
+
+> **Architectural note:** Standard SMTP requires the sending server to relay the full message to the recipient's mail server. Full end-to-end encryption for outbound mail is not possible within standard SMTP. The outbound MIME body is encrypted at rest in the BullMQ/Redis queue and purged immediately after transmission. A future roadmap item is client-assembled MIME to reduce the server's access window.
+
+#### Zero-knowledge scope and limitations
+
+Enclave Mail provides **zero-knowledge storage** for inbound email: messages are encrypted with the recipient's X25519 public key before being written to the database, and the server never holds the private key needed to decrypt them. Subjects, bodies, and metadata stored in PostgreSQL are ciphertext.
+
+**What the server cannot access:**
+- Stored message bodies and subjects (X25519+ChaCha20-Poly1305 ciphertext)
+- User private keys (generated and stored in the browser only)
+- User passwords (SRP — only a verifier is stored, never the password)
+
+**What the server does access transiently:**
+- Outbound MIME bodies during SMTP relay (encrypted at rest in Redis with AES-256-GCM; decrypted only at the moment of transmission, then purged)
+- Email addresses for SMTP routing (sender, recipients)
+- Unencrypted headers required by SMTP (e.g., `From`, `To`, `Date`, `Message-ID`)
+
+**Current encryption model:** Each inbound message is encrypted with an ephemeral X25519 key pair — the sender's ephemeral private key is combined with the recipient's stored public key to derive a shared secret, which is used as the ChaCha20-Poly1305 key. This provides per-message forward secrecy for inbound storage but does not implement a ratcheting protocol.
+
+**Future roadmap:**
+- **Double Ratchet + X3DH** — A full Signal-style ratcheting protocol for Enclave-to-Enclave messaging is planned for a future release. This would provide forward secrecy and break-in recovery for conversations between Enclave Mail users.
+- **Client-assembled MIME** — Moving MIME assembly to the browser would eliminate the server's transient access to outbound message content entirely.
+
+---
+
+## Database Migrations
+
+Enclave Mail uses a single idempotent `setup.sql` that creates all tables with `IF NOT EXISTS`. Migrations are applied automatically on server startup.
+
+### Applying Migrations Manually
+
+```bash
+bun run db:migrate
+```
+
+### Docker Compose
+
+```bash
+docker compose run --rm server bun run db:migrate
+```
+
+### Upgrading
+
+1. Pull the latest changes: `git pull`
+2. Apply migrations: `bun run db:migrate` (or let the server apply them on next restart)
+3. Restart the server: `docker compose restart server`
+
+### Troubleshooting
+
+- **"column already exists"**: Safe to ignore — all migrations use `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`.
+- **"relation does not exist"**: Check `DATABASE_URL` is set correctly and the database is reachable.
+- **Migration fails on startup**: The server exits non-zero. Check logs for the specific SQL error.
 
 ---
 

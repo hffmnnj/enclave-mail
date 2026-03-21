@@ -17,11 +17,21 @@ process.on('unhandledRejection', (reason: unknown) => {
   console.error('[server] unhandled rejection:', reason);
 });
 
+import { runMigrations } from '@enclave/db';
 import { apiApp } from './api/app.js';
 import { startIMAPServer } from './imap/server.js';
 import { startInboundWorker } from './queue/inbound-worker.js';
 import { startOutboundWorker } from './queue/outbound-worker.js';
 import { startSMTPServer } from './smtp/server.js';
+
+// Apply pending database migrations before accepting connections.
+// All migrations are idempotent (IF NOT EXISTS), so this is safe on every startup.
+try {
+  await runMigrations();
+} catch (err) {
+  console.error('[server] Database migration failed — exiting:', err);
+  process.exit(1);
+}
 
 const app = new Hono();
 

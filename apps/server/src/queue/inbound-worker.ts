@@ -1,28 +1,21 @@
 import { createHash } from 'node:crypto';
 
-import { computeSharedSecret, generateX25519KeyPair } from '@enclave/crypto';
 import { db, keypairs, mailboxes, messageBodies, messages, users } from '@enclave/db';
 import type { InboundMailJob } from '@enclave/types';
 import { QUEUE_NAMES } from '@enclave/types';
-import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
-import { randomBytes } from '@noble/ciphers/webcrypto.js';
-import { hkdf } from '@noble/hashes/hkdf.js';
-import { sha256 } from '@noble/hashes/sha2.js';
 import type { Job, Worker } from 'bullmq';
 import { Worker as BullWorker } from 'bullmq';
 import { and, eq, sql } from 'drizzle-orm';
 
 import { publishMailboxUpdate } from '../imap/notify.js';
+import { dispatchPushToUser } from '../lib/vapid.js';
+import { createRecipientEncryptor } from '../smtp/encrypt.js';
 import { extractMailMetadata, parseRawEmail } from '../smtp/inbound.js';
 import { type VerificationResult, verifyMessage } from '../smtp/verification.js';
 import { createRedisConnection } from './connection.js';
 
-const HKDF_INFO = 'enclave-inbound-v1';
-const EMPTY_SALT = new Uint8Array(0);
-
 export type InboundEncryptionMetadata = {
   ephemeralPublicKey: string;
-  salt: typeof HKDF_INFO;
   algorithm: 'x25519-chacha20poly1305';
   bodyNonce: string;
   subjectNonce: string;
@@ -105,10 +98,6 @@ function fallbackMessageId(rawEmail: string): string {
   return `generated-${digest}`;
 }
 
-function toHex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('hex');
-}
-
 function encryptWithRecipientPublicKey(
   rawEmail: string,
   subject: string,
@@ -118,27 +107,18 @@ function encryptWithRecipientPublicKey(
   encryptedSubject: Buffer;
   encryptionMetadata: InboundEncryptionMetadata;
 } {
-  const ephemeralKeyPair = generateX25519KeyPair();
-  const sharedSecret = computeSharedSecret(ephemeralKeyPair.privateKey, recipientPublicKey);
-  const symmetricKey = hkdf(sha256, sharedSecret, EMPTY_SALT, HKDF_INFO, 32);
-
-  const bodyNonce = randomBytes(12);
-  const bodyCipher = chacha20poly1305(symmetricKey, bodyNonce);
-  const encryptedBody = bodyCipher.encrypt(new TextEncoder().encode(rawEmail));
-
-  const subjectNonce = randomBytes(12);
-  const subjectCipher = chacha20poly1305(symmetricKey, subjectNonce);
-  const encryptedSubject = subjectCipher.encrypt(new TextEncoder().encode(subject));
+  const encryptor = createRecipientEncryptor(recipientPublicKey);
+  const encryptedBodyPayload = encryptor.encrypt(new TextEncoder().encode(rawEmail));
+  const encryptedSubjectPayload = encryptor.encrypt(new TextEncoder().encode(subject));
 
   return {
-    encryptedBody: Buffer.from(encryptedBody),
-    encryptedSubject: Buffer.from(encryptedSubject),
+    encryptedBody: encryptedBodyPayload.ciphertext,
+    encryptedSubject: encryptedSubjectPayload.ciphertext,
     encryptionMetadata: {
-      ephemeralPublicKey: toHex(ephemeralKeyPair.publicKey),
-      salt: HKDF_INFO,
       algorithm: 'x25519-chacha20poly1305',
-      bodyNonce: toHex(bodyNonce),
-      subjectNonce: toHex(subjectNonce),
+      ephemeralPublicKey: encryptedBodyPayload.ephemeralPublicKey.toString('hex'),
+      bodyNonce: encryptedBodyPayload.nonce.toString('hex'),
+      subjectNonce: encryptedSubjectPayload.nonce.toString('hex'),
     },
   };
 }
@@ -350,6 +330,19 @@ export async function processInboundMailJob(
 
       result.storedRecipients += 1;
       publishMailboxUpdate(inboxMailbox.id, storeResult.messageCount);
+
+      // Fire-and-forget push notification — never fail message delivery
+      dispatchPushToUser(user.id, {
+        title: 'New message',
+        body: `From: ${metadata.from}`,
+        url: '/mail/inbox',
+      }).catch((pushErr: unknown) => {
+        deps.logger.warn(
+          `Push notification failed for ${normalizedRecipient}: ${
+            pushErr instanceof Error ? pushErr.message : String(pushErr)
+          }`,
+        );
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       deps.logger.error(`Failed inbound delivery for recipient ${normalizedRecipient}: ${message}`);
